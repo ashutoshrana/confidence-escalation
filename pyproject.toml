@@ -1,0 +1,70 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "confidence-escalation"
+version = "0.1.0"
+description = "Framework-agnostic confidence-gated escalation middleware for LLM agents: multi-signal scoring (logprob, verbalized, tool risk), threshold policies, and escalation handlers for LangChain, CrewAI, AutoGen, and Google ADK."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [
+    {name = "Ashutosh Rana", email = "17191144+ashutoshrana@users.noreply.github.com"},
+]
+keywords = [
+    "llm-agents", "confidence-scoring", "escalation", "human-in-loop",
+    "langchain", "crewai", "autogen", "google-adk", "owasp-agentic-ai",
+    "enterprise-ai", "ai-safety", "ai-governance", "logprob",
+    "multi-signal", "threshold-policy", "agent-middleware",
+    "eu-ai-act", "regulated-industries"
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Security",
+]
+dependencies = []
+
+[project.optional-dependencies]
+langchain = ["langchain-core>=0.1.0"]
+crewai = ["crewai>=0.1.0"]
+autogen = ["pyautogen>=0.2.0"]
+adk = ["google-adk>=0.3.0"]
+all = [
+    "langchain-core>=0.1.0",
+    "crewai>=0.1.0",
+    "pyautogen>=0.2.0",
+    "google-adk>=0.3.0",
+]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "pytest-cov>=4.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/ashutoshrana/confidence-escalation"
+Documentation = "https://github.com/ashutoshrana/confidence-escalation#readme"
+Repository = "https://github.com/ashutoshrana/confidence-escalation"
+Issues = "https://github.com/ashutoshrana/confidence-escalation/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/confidence_escalation"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+[tool.coverage.run]
+source = ["src/confidence_escalation"]
+branch = true
