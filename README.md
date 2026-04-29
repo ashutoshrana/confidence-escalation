@@ -12,6 +12,14 @@ Addresses **OWASP Agentic AI Top 10 ASI-09**: Human-Agent Trust Exploitation —
 
 ---
 
+## Featured Article
+
+**[MACF: The 6-Component Framework Every Enterprise Multi-Agent AI System Needs](https://dev.to/ashutoshrana/macf-the-6-component-framework-every-enterprise-multi-agent-ai-system-needs-a0)**
+
+A detailed walkthrough of how `confidence-escalation` integrates as the **ComplianceGate** in the Multi-Agent Collaborative Framework (MACF) — covering all six components with working Python code, Mermaid architecture diagrams, and a full request-flow sequence trace. Includes `ThresholdPolicy`, `MultiSignalConfidenceScorer`, and `HumanInLoopHandler` wiring examples.
+
+---
+
 ## The Problem
 
 LLM agents fail silently. When an agent is uncertain, it still returns a response — often confidently-worded — with no mechanism to:
