@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you use this library in your work, please cite using the metadata below."
+type: software
+title: "confidence-escalation: Confidence-Gated Escalation Middleware for LLM Agents"
+abstract: >
+  Framework-agnostic middleware implementing confidence-gated escalation for LLM
+  agents. Combines logprob, verbalized confidence, and tool-call risk signals into
+  threshold-based escalation policies with pluggable handlers for human review,
+  model upgrade, and compliance logging. Addresses OWASP Agentic AI ASI-09 and
+  EU AI Act Article 14 human oversight requirements.
+authors:
+  - family-names: "Rana"
+    given-names: "Ashutosh"
+    affiliation: "CherryRoad Technologies"
+repository-code: "https://github.com/ashutoshrana/confidence-escalation"
+license: MIT
+keywords:
+  - confidence-scoring
+  - llm-agents
+  - escalation
+  - human-in-the-loop
+  - eu-ai-act
+  - owasp-agentic-ai
+  - multi-agent
+  - compliance
+  - regulated-industries
+date-released: "2026-04-25"
