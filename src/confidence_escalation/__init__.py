@@ -67,3 +67,4 @@ __all__ = [
     "AutoGenEscalationAdapter",
     "ADKEscalationAdapter",
 ]
+from confidence_escalation.async_middleware import AsyncConfidenceEscalationMiddleware  # noqa: F401
