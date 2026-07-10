@@ -152,7 +152,7 @@ class ConfidenceEscalationMiddleware:
         handler_results = self.dispatch(policy_result, context) if policy_result.triggered else []
 
         event = EscalationEvent(
-            timestamp=datetime.datetime.utcnow().isoformat(),
+            timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
             triggered=policy_result.triggered,
             action=policy_result.action,
             confidence_score=confidence.value,

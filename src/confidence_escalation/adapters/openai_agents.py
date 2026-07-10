@@ -255,7 +255,7 @@ class OpenAIAgentsEscalationAdapter:
         from confidence_escalation.middleware import EscalationEvent
         import datetime
         event = EscalationEvent(
-            timestamp=datetime.datetime.utcnow().isoformat(),
+            timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
             triggered=result.triggered,
             action=result.action,
             confidence_score=confidence.value,

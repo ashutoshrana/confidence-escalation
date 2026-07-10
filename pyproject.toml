@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Framework-agnostic confidence-gated escalation middleware for LLM agents: multi-signal scoring (logprob, verbalized, tool risk), threshold policies, and escalation handlers for LangChain, CrewAI, AutoGen, and Google ADK."
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 authors = [
     {name = "Ashutosh Rana", email = "17191144+ashutoshrana@users.noreply.github.com"},
 ]
@@ -24,30 +24,34 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Security",
 ]
 dependencies = []
 
 [project.optional-dependencies]
-langchain = ["langchain-core>=0.1.0"]
-crewai = ["crewai>=0.1.0"]
-autogen = ["pyautogen>=0.2.0"]
-adk = ["google-adk>=0.3.0"]
+langchain = ["langchain-core>=0.3.0,<1.0.0"]
+crewai = ["crewai>=0.11.0"]
+autogen = ["pyautogen>=0.9.0"]
+adk = ["google-adk>=1.0.0"]
+openai_agents = ["openai-agents>=0.14.0"]
+pydantic_ai = ["pydantic-ai>=1.0.0"]
 all = [
-    "langchain-core>=0.1.0",
-    "crewai>=0.1.0",
-    "pyautogen>=0.2.0",
-    "google-adk>=0.3.0",
+    "langchain-core>=0.3.0,<1.0.0",
+    "crewai>=0.11.0",
+    "pyautogen>=0.9.0",
+    "google-adk>=1.0.0",
+    "openai-agents>=0.14.0",
+    "pydantic-ai>=1.0.0",
 ]
 dev = [
-    "pytest>=7.0",
-    "pytest-asyncio>=0.21",
-    "pytest-cov>=4.0",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
 ]
 
 [project.urls]

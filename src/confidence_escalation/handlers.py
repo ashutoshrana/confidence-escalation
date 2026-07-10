@@ -88,7 +88,7 @@ class HumanInLoopHandler(EscalationHandler):
             "queue": self.queue_name,
             "confidence": result.confidence_score,
             "reason": result.reason,
-            "timestamp": datetime.datetime.utcnow().isoformat(),
+            "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
         }
 
         if self.raise_on_trigger:
@@ -150,7 +150,7 @@ class ModelUpgradeHandler(EscalationHandler):
             "current_model": current_model,
             "upgraded_model": upgraded_model,
             "confidence": result.confidence_score,
-            "timestamp": datetime.datetime.utcnow().isoformat(),
+            "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
         }
 
 
@@ -213,7 +213,7 @@ class ToolRestrictionHandler(EscalationHandler):
             "restricted_tools": restricted,
             "allowed_tools": allowed,
             "confidence": result.confidence_score,
-            "timestamp": datetime.datetime.utcnow().isoformat(),
+            "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
         }
 
 
@@ -278,7 +278,7 @@ class ComplianceLoggingHandler(EscalationHandler):
         context_snapshot = {k: ctx[k] for k in self.include_context_keys if k in ctx}
 
         entry = ComplianceLogEntry(
-            timestamp=datetime.datetime.utcnow().isoformat(),
+            timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
             session_id=str(ctx.get("session_id", "unknown")),
             confidence_score=result.confidence_score or 0.0,
             threshold=result.threshold_used or 0.0,
