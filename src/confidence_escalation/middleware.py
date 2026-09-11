@@ -125,6 +125,25 @@ class ConfidenceEscalationMiddleware:
                 handler_results.append(hr)
         return handler_results
 
+    def call_guarded(
+        self, action: Callable[..., Any], confidence: ConfidenceScore,
+        *args: Any, context: Optional[Dict[str, Any]] = None, **kwargs: Any,
+    ) -> Any:
+        """Evaluate supplied pre-action evidence; denied actions are never invoked.
+
+        This confidence gate is not identity authorization. Run authorization separately.
+        Missing evidence blocks regardless of threshold. Re-evaluate after human review.
+        """
+        from confidence_escalation.scorer import validate_probability
+        validate_probability(confidence.value, "confidence")
+        if confidence.metadata.get("has_evidence") is False or confidence.metadata.get("missing_signal"):
+            raise PermissionError("Action blocked: confidence evidence is missing")
+        decision = self.evaluate(confidence, context)
+        if decision.triggered:
+            self.dispatch(decision, context)
+            raise PermissionError(f"Action blocked: {decision.reason}")
+        return action(*args, **kwargs)
+
     def call(
         self,
         agent_step: Callable[..., Any],
@@ -135,7 +154,8 @@ class ConfidenceEscalationMiddleware:
         **kwargs: Any,
     ) -> Dict[str, Any]:
         """
-        Invoke ``agent_step(*args, **kwargs)``, score its output, and escalate if needed.
+        Post-response evaluation: executes the step before scoring.
+        Use call_guarded for pre-action gating of side effects.
 
         The wrapped function's return value is included in the result dict
         under key ``"response"``. The escalation event is under ``"escalation"``.

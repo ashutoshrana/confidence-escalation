@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
-from confidence_escalation.scorer import ConfidenceScore
+from confidence_escalation.scorer import ConfidenceScore, validate_probability
 
 __all__ = [
     "EscalationAction",
@@ -81,6 +81,12 @@ class ThresholdPolicy(EscalationPolicy):
         context_overrides: Optional[Dict[str, float]] = None,
         on_escalation: Optional[Callable[[PolicyResult], None]] = None,
     ):
+        for name, value in {"threshold": threshold, **(context_overrides or {})}.items():
+            validate_probability(value, name)
+        if critical_threshold is not None:
+            validate_probability(critical_threshold, "critical_threshold")
+            if critical_threshold > threshold:
+                raise ValueError("critical_threshold must not exceed threshold")
         self.threshold = threshold
         self.action = action
         self.critical_threshold = critical_threshold
