@@ -1,0 +1,8 @@
+[
+  {"id":"correct-high","confidence":0.95,"correct":true},
+  {"id":"correct-medium","confidence":0.75,"correct":true},
+  {"id":"correct-low","confidence":0.35,"correct":true},
+  {"id":"incorrect-high","confidence":0.85,"correct":false},
+  {"id":"incorrect-medium","confidence":0.55,"correct":false},
+  {"id":"incorrect-low","confidence":0.15,"correct":false}
+]

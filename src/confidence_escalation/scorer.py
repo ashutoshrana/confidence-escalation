@@ -35,11 +35,19 @@ class ConfidenceScore:
     signals: Dict[str, float] = field(default_factory=dict)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        validate_probability(self.value, "confidence")
+
     def is_reliable(self, threshold: float = 0.6) -> bool:
         return self.value >= threshold
 
     def __float__(self) -> float:
         return self.value
+
+
+def validate_probability(value: float, name: str) -> None:
+    if not math.isfinite(value) or not 0 <= value <= 1:
+        raise ValueError(f"{name} must be finite and between 0 and 1")
 
 
 class ConfidenceScorer:
@@ -50,7 +58,9 @@ class ConfidenceScorer:
 
     def score_from_logprobs(self, logprobs: List[float]) -> ConfidenceScore:
         if not logprobs:
-            return ConfidenceScore(value=0.5, method=ScoringMethod.LOGPROB)
+            return ConfidenceScore(value=0.5, method=ScoringMethod.LOGPROB, metadata={"missing_signal": True})
+        if any(not math.isfinite(v) or v > 0 for v in logprobs):
+            raise ValueError("logprobs must be finite and non-positive")
         avg_logprob = sum(logprobs) / len(logprobs)
         # Convert log probability to [0, 1] range
         confidence = math.exp(avg_logprob)
@@ -76,8 +86,9 @@ class ConfidenceScorer:
             match = re.search(pattern, verbalized, re.IGNORECASE)
             if match:
                 pct = float(match.group(1))
+                validate_probability(pct / 100, "verbalized confidence")
                 return ConfidenceScore(
-                    value=min(1.0, pct / 100.0),
+                    value=pct / 100.0,
                     method=ScoringMethod.VERBALIZED,
                     signals={"raw_percentage": pct},
                 )
@@ -87,7 +98,7 @@ class ConfidenceScorer:
             return ConfidenceScore(value=0.35, method=ScoringMethod.VERBALIZED)
         if any(w in text_lower for w in ["certain", "definitely", "sure"]):
             return ConfidenceScore(value=0.85, method=ScoringMethod.VERBALIZED)
-        return ConfidenceScore(value=0.5, method=ScoringMethod.VERBALIZED)
+        return ConfidenceScore(value=0.5, method=ScoringMethod.VERBALIZED, metadata={"missing_signal": True})
 
 
 class MultiSignalConfidenceScorer:
@@ -95,7 +106,7 @@ class MultiSignalConfidenceScorer:
     Composite confidence scorer combining multiple signal sources.
 
     Weights are configurable per deployment context.
-    Default weights are calibrated for enterprise voice AI.
+    Default weights are heuristics, not empirically calibrated probabilities.
 
     Example:
         scorer = MultiSignalConfidenceScorer(
@@ -115,7 +126,9 @@ class MultiSignalConfidenceScorer:
     }
 
     def __init__(self, weights: Optional[Dict[str, float]] = None):
-        self.weights = weights or self.DEFAULT_WEIGHTS
+        self.weights = dict(self.DEFAULT_WEIGHTS if weights is None else weights)
+        if any(not math.isfinite(w) for w in self.weights.values()):
+            raise ValueError("weights must be finite")
         self._scorer = ConfidenceScorer()
 
     def score(
@@ -125,11 +138,15 @@ class MultiSignalConfidenceScorer:
         tool_call_risk: Optional[float] = None,
         additional_signals: Optional[Dict[str, float]] = None,
     ) -> ConfidenceScore:
+        if tool_call_risk is not None:
+            validate_probability(tool_call_risk, "tool_call_risk")
+        for name, value in (additional_signals or {}).items():
+            validate_probability(value, name)
         signals = {}
         composite = 0.0
         weight_sum = 0.0
 
-        if logprobs is not None:
+        if logprobs:
             lp_score = self._scorer.score_from_logprobs(logprobs)
             w = self.weights.get("logprob", 0.5)
             composite += lp_score.value * w
@@ -138,10 +155,11 @@ class MultiSignalConfidenceScorer:
 
         if verbalized_response is not None:
             v_score = self._scorer.score_from_verbalized(verbalized_response)
-            w = self.weights.get("verbalized", 0.25)
+            w = 0.0 if v_score.metadata.get("missing_signal") else self.weights.get("verbalized", 0.25)
             composite += v_score.value * w
             weight_sum += abs(w)
-            signals["verbalized"] = v_score.value
+            if w:
+                signals["verbalized"] = v_score.value
 
         if tool_call_risk is not None:
             w = self.weights.get("tool_risk", -0.25)
@@ -166,4 +184,5 @@ class MultiSignalConfidenceScorer:
             value=max(0.0, min(1.0, normalized)),
             method=ScoringMethod.COMPOSITE,
             signals=signals,
+            metadata={"missing_signals": [name for name in ("logprob", "verbalized", "tool_risk") if name not in signals], "has_evidence": bool(signals)},
         )

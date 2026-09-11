@@ -248,3 +248,11 @@ result = policy.evaluate(score, context={"session_id": "abc"})
 ## License
 
 MIT License. See [LICENSE](LICENSE).
+
+## Reliability updates (unreleased)
+
+Explicit call_guarded pre-action gating; finite/range input validation and missing-signal metadata; reproducible synthetic evaluation. Source version remains 0.1.0; fixes are unpublished.
+
+`ConfidenceEscalationMiddleware.call` scores after execution. Use `middleware.call_guarded(action, confidence, *args, context=context, **kwargs)` before side effects. Escalation or explicitly missing evidence raises `PermissionError` without invoking the action. Re-evaluate after human review; callbacks do not grant approval. This gate does not replace identity/resource authorization.
+
+Scores/thresholds must be finite in [0,1], log probabilities finite and non-positive. Missing signals are marked; weights are heuristics, not calibrated probabilities. Run `python benchmarks/evaluate.py` to reproduce [results](benchmarks/results.json). Six synthetic hand-labeled cases illustrate coverage, error/abstention, Brier score, and aggregate confidence bias. They are not representative or fitted calibration; collect independently labeled domain outcomes before choosing deployment thresholds.
