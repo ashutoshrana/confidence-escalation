@@ -30,3 +30,10 @@ def test_empty_logprobs_are_missing_not_neutral_evidence():
     score = MultiSignalConfidenceScorer().score(logprobs=[])
     assert score.metadata['has_evidence'] is False
     assert score.signals == {}
+
+
+def test_finite_weights_cannot_overflow_composite():
+    with pytest.raises(ValueError):
+        MultiSignalConfidenceScorer(weights={"a": 1e308, "b": 1e308})
+    score = ConfidenceScorer().score_from_logprobs([-1e308, -1e308])
+    assert math.isfinite(score.signals['avg_logprob'])

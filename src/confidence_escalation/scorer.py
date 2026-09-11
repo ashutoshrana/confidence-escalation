@@ -61,7 +61,7 @@ class ConfidenceScorer:
             return ConfidenceScore(value=0.5, method=ScoringMethod.LOGPROB, metadata={"missing_signal": True})
         if any(not math.isfinite(v) or v > 0 for v in logprobs):
             raise ValueError("logprobs must be finite and non-positive")
-        avg_logprob = sum(logprobs) / len(logprobs)
+        avg_logprob = sum(value / len(logprobs) for value in logprobs)
         # Convert log probability to [0, 1] range
         confidence = math.exp(avg_logprob)
         return ConfidenceScore(
@@ -127,7 +127,8 @@ class MultiSignalConfidenceScorer:
 
     def __init__(self, weights: Optional[Dict[str, float]] = None):
         self.weights = dict(self.DEFAULT_WEIGHTS if weights is None else weights)
-        if any(not math.isfinite(w) for w in self.weights.values()):
+        if (any(not math.isfinite(w) for w in self.weights.values())
+                or not math.isfinite(sum(abs(w) for w in self.weights.values()))):
             raise ValueError("weights must be finite")
         self._scorer = ConfidenceScorer()
 
