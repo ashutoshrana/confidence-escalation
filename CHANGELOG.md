@@ -6,9 +6,9 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
-## [Unreleased]
+## [0.2.0] — pending release
 
-- Explicit call_guarded pre-action gating; finite/range input validation and missing-signal metadata; reproducible synthetic evaluation. Source version remains 0.1.0; fixes are unpublished.
+- Explicit call_guarded pre-action gating; finite/range input validation and missing-signal metadata; reproducible synthetic evaluation. Source version 0.2.0; release publication is pending.
 
 ## [0.1.0] — 2026-04-25
 

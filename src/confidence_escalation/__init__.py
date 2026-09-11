@@ -40,7 +40,7 @@ from confidence_escalation.adapters.crewai import CrewAIEscalationAdapter
 from confidence_escalation.adapters.autogen import AutoGenEscalationAdapter
 from confidence_escalation.adapters.google_adk import ADKEscalationAdapter
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __all__ = [
     # Scorer
     "ConfidenceScorer",

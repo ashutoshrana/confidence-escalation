@@ -251,7 +251,7 @@ MIT License. See [LICENSE](LICENSE).
 
 ## Reliability updates (unreleased)
 
-Explicit call_guarded pre-action gating; finite/range input validation and missing-signal metadata; reproducible synthetic evaluation. Source version remains 0.1.0; fixes are unpublished.
+Explicit call_guarded pre-action gating; finite/range input validation and missing-signal metadata; reproducible synthetic evaluation. Source version 0.2.0; release publication is pending.
 
 `ConfidenceEscalationMiddleware.call` scores after execution. Use `middleware.call_guarded(action, confidence, *args, context=context, **kwargs)` before side effects. Escalation or explicitly missing evidence raises `PermissionError` without invoking the action. Re-evaluate after human review; callbacks do not grant approval. This gate does not replace identity/resource authorization.
 
