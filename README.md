@@ -249,15 +249,15 @@ result = policy.evaluate(score, context={"session_id": "abc"})
 
 MIT License. See [LICENSE](LICENSE).
 
-## Reliability updates (unreleased)
+## Reliability updates (0.2.0)
 
-Explicit call_guarded pre-action gating; finite/range input validation and missing-signal metadata; reproducible synthetic evaluation. Source version 0.2.0; release publication is pending.
+Explicit call_guarded pre-action gating; finite/range input validation and missing-signal metadata; reproducible synthetic evaluation. Introduced in 0.2.0.
 
 `ConfidenceEscalationMiddleware.call` scores after execution. Use `middleware.call_guarded(action, confidence, *args, context=context, **kwargs)` before side effects. Escalation or explicitly missing evidence raises `PermissionError` without invoking the action. Re-evaluate after human review; callbacks do not grant approval. This gate does not replace identity/resource authorization.
 
 Scores/thresholds must be finite in [0,1], log probabilities finite and non-positive. Missing signals are marked; weights are heuristics, not calibrated probabilities. Run `python benchmarks/evaluate.py` to reproduce [results](benchmarks/results.json). Six synthetic hand-labeled cases illustrate coverage, error/abstention, Brier score, and aggregate confidence bias. They are not representative or fitted calibration; collect independently labeled domain outcomes before choosing deployment thresholds.
 
-## September 2026 boundary review (unreleased)
+## September 2026 boundary review (0.3.0)
 
 Add async pre-action gating, await async callable objects, reject deferred execution through the synchronous gate, and exercise native SDK tool input guardrails with the real Runner.
 
