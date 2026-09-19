@@ -6,6 +6,10 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [Unreleased]
+
+- Add async pre-action gating, await async callable objects, reject deferred execution through the synchronous gate, and exercise native SDK tool input guardrails with the real Runner.
+
 ## [0.2.0] — pending release
 
 - Explicit call_guarded pre-action gating; finite/range input validation and missing-signal metadata; reproducible synthetic evaluation. Source version 0.2.0; release publication is pending.

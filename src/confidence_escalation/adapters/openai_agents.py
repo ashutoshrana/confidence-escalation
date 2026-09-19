@@ -38,6 +38,7 @@ from __future__ import annotations
 import datetime
 import json
 import logging
+import json
 from typing import Any, Dict, List, Optional
 
 from confidence_escalation.handlers import EscalationHandler, HumanInLoopHandler, ComplianceLoggingHandler
@@ -50,35 +51,48 @@ __all__ = ["OpenAIAgentsEscalationAdapter", "OpenAIAgentsHooks"]
 logger = logging.getLogger(__name__)
 
 
-class OpenAIAgentsHooks:
+try:
+    from agents.lifecycle import RunHooksBase as _RunHooksBase
+except ImportError:
+    class _RunHooksBase:  # Optional SDK; native integration requires installation.
+        pass
+
+
+class OpenAIAgentsHooks(_RunHooksBase):
     """
     Minimal implementation of openai-agents RunHooksBase interface.
 
-    Implements ``on_tool_start`` (pre-tool confidence gate) and
+    Implements ``on_tool_start`` (tool-risk observation) and
     ``on_llm_end`` (post-response confidence scoring).
 
-    When ``openai-agents`` is installed, subclass ``RunHooksBase`` instead;
-    this shim avoids a hard import dependency.
+    Subclasses the installed SDK base when available. Use as_tool_guardrail
+    for blocking; hooks record lifecycle observations only.
     """
 
     def __init__(self, adapter: "OpenAIAgentsEscalationAdapter"):
         self._adapter = adapter
 
-    async def on_tool_start(self, ctx: Any, tool: Any) -> None:
+    async def on_tool_start(self, ctx: Any, agent: Any, tool: Any = None) -> None:
         """
-        Pre-tool-call gate (EU AI Act Art. 14 override point).
+        Record tool-risk observations before a tool invocation.
 
         Accesses tool name and arguments from ``ToolContext`` if available,
         computes tool risk score, and evaluates confidence policy.
         Raises ``HumanInLoopHandler.HumanReviewRequired`` if escalation
         is triggered and ``raise_on_trigger=True``.
         """
+        if tool is None:  # Retain legacy direct two-argument calls.
+            tool = agent
         tool_name = getattr(tool, "name", str(tool))
         tool_arguments: Dict[str, Any] = {}
 
         # ToolContext exposes tool_call_id and tool_arguments when available
         if hasattr(ctx, "tool_arguments") and ctx.tool_arguments:
             tool_arguments = ctx.tool_arguments
+            if isinstance(tool_arguments, str):
+                tool_arguments = json.loads(tool_arguments)
+            if not isinstance(tool_arguments, dict):
+                raise ValueError("Tool arguments must be a JSON object")
 
         tool_risk = self._adapter._tool_risk_for(tool_name)
         context = {
@@ -94,8 +108,18 @@ class OpenAIAgentsHooks:
             context=context,
         )
 
-    async def on_llm_end(self, ctx: Any, agent: Any) -> None:
+    async def on_llm_end(self, ctx: Any, agent: Any, response: Any = None) -> None:
         """Post-LLM-response confidence scoring (EU AI Act Art. 12 audit log)."""
+        if response is not None:
+            text = "".join(
+                getattr(content, "text", "")
+                for item in getattr(response, "output", [])
+                for content in getattr(item, "content", [])
+                if getattr(content, "type", None) == "output_text"
+            )
+            if text:
+                self._adapter.score_response(text, context={"event": "on_llm_end"})
+            return
         # Raw responses are available on the RunResult; extract usage metadata
         raw_responses: List[Any] = getattr(ctx, "raw_responses", [])
         logprobs: Optional[List[float]] = None
@@ -122,10 +146,16 @@ class OpenAIAgentsHooks:
                 context={"event": "on_llm_end", "agent_name": getattr(agent, "name", "unknown")},
             )
 
+    async def on_llm_start(self, context: Any, agent: Any, system_prompt: Any, input_items: Any) -> None:
+        pass
+
+    async def on_tool_end(self, context: Any, agent: Any, tool: Any, result: Any) -> None:
+        pass
+
     async def on_agent_start(self, ctx: Any, agent: Any) -> None:
         pass
 
-    async def on_agent_end(self, ctx: Any, agent: Any) -> None:
+    async def on_agent_end(self, ctx: Any, agent: Any, output: Any = None) -> None:
         pass
 
     async def on_handoff(self, ctx: Any, from_agent: Any, to_agent: Any) -> None:
@@ -136,7 +166,7 @@ class OpenAIAgentsEscalationAdapter:
     """
     Confidence-gated escalation adapter for the OpenAI Agents SDK.
 
-    Intercepts tool calls via ``RunHooksBase.on_tool_start`` and post-LLM
+    Observes tool calls via ``RunHooksBase.on_tool_start`` and post-LLM
     responses via ``on_llm_end`` to apply a configurable threshold policy.
 
     EU AI Act Art. 14 compliance:
@@ -263,6 +293,24 @@ class OpenAIAgentsEscalationAdapter:
             context_snapshot=context or {},
         )
         self._local_events.append(event)
+
+    def as_tool_guardrail(self) -> Any:
+        """Return an SDK input guardrail that blocks triggered function-tool calls.
+
+        Requires the optional openai-agents SDK. Attach to tool_input_guardrails;
+        lifecycle hooks alone are observational, not an execution boundary.
+        """
+        from agents.tool_guardrails import tool_input_guardrail, ToolGuardrailFunctionOutput
+
+        @tool_input_guardrail
+        async def confidence_gate(data: Any) -> Any:
+            name = data.context.tool_name
+            result = self.evaluate_tool_gate(name, self._tool_risk_for(name), {"event": "tool_input_guardrail"})
+            if result["triggered"]:
+                return ToolGuardrailFunctionOutput.raise_exception({"reason": "confidence escalation"})
+            return ToolGuardrailFunctionOutput.allow()
+
+        return confidence_gate
 
     def as_hooks(self) -> "OpenAIAgentsHooks":
         """Return a ``RunHooksBase``-compatible hook object."""

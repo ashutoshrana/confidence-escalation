@@ -38,6 +38,12 @@ class ConfidenceScore:
     def __post_init__(self) -> None:
         validate_probability(self.value, "confidence")
 
+    def require_evidence(self) -> None:
+        """Validate a score again at execution time, including mutable evidence flags."""
+        validate_probability(self.value, "confidence")
+        if self.metadata.get("has_evidence") is False or self.metadata.get("missing_signal"):
+            raise PermissionError("Action blocked: confidence evidence is missing")
+
     def is_reliable(self, threshold: float = 0.6) -> bool:
         return self.value >= threshold
 
