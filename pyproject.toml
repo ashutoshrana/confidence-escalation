@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "confidence-escalation"
-version = "0.2.0"
+version = "0.3.0"
 description = "Framework-agnostic confidence-gated escalation middleware for LLM agents: multi-signal scoring (logprob, verbalized, tool risk), threshold policies, and escalation handlers for LangChain, CrewAI, AutoGen, and Google ADK."
 readme = "README.md"
 license = {text = "MIT"}
