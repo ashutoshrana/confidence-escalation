@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import inspect
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 
@@ -62,6 +63,30 @@ class AsyncConfidenceEscalationMiddleware:
         self.event_sink = event_sink
         self._events: List[EscalationEvent] = []
 
+    async def call_guarded(
+        self, action: Callable[..., Any], confidence: ConfidenceScore,
+        *args: Any, context: Optional[Dict[str, Any]] = None, **kwargs: Any,
+    ) -> Any:
+        """Check fresh confidence evidence before invoking and awaiting an action.
+
+        Confidence gating does not replace caller/resource authorization.
+        Cancellation cannot undo an action already started, including worker threads.
+        """
+        confidence.require_evidence()
+        decision = self._evaluate(confidence, context)
+        if decision.triggered:
+            await self._dispatch(decision, context)
+            raise PermissionError(f"Action blocked: {decision.reason}")
+        return await self._invoke(action, *args, **kwargs)
+
+    @staticmethod
+    async def _invoke(action: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        if inspect.iscoroutinefunction(action) or inspect.iscoroutinefunction(getattr(action, "__call__", None)):
+            result = action(*args, **kwargs)
+        else:
+            result = await asyncio.to_thread(action, *args, **kwargs)
+        return await result if inspect.isawaitable(result) else result
+
     async def call(
         self,
         agent_step: Callable[..., Any],
@@ -77,11 +102,7 @@ class AsyncConfidenceEscalationMiddleware:
         Coroutine functions are awaited directly; sync callables run in the default
         executor so the event loop is never blocked.
         """
-        if asyncio.iscoroutinefunction(agent_step):
-            response = await agent_step(*args, **kwargs)
-        else:
-            loop = asyncio.get_running_loop()
-            response = await loop.run_in_executor(None, lambda: agent_step(*args, **kwargs))
+        response = await self._invoke(agent_step, *args, **kwargs)
 
         response_text = response if isinstance(response, str) else str(response)
         confidence = self.scorer.score(

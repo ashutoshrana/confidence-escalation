@@ -256,3 +256,25 @@ Explicit call_guarded pre-action gating; finite/range input validation and missi
 `ConfidenceEscalationMiddleware.call` scores after execution. Use `middleware.call_guarded(action, confidence, *args, context=context, **kwargs)` before side effects. Escalation or explicitly missing evidence raises `PermissionError` without invoking the action. Re-evaluate after human review; callbacks do not grant approval. This gate does not replace identity/resource authorization.
 
 Scores/thresholds must be finite in [0,1], log probabilities finite and non-positive. Missing signals are marked; weights are heuristics, not calibrated probabilities. Run `python benchmarks/evaluate.py` to reproduce [results](benchmarks/results.json). Six synthetic hand-labeled cases illustrate coverage, error/abstention, Brier score, and aggregate confidence bias. They are not representative or fitted calibration; collect independently labeled domain outcomes before choosing deployment thresholds.
+
+## September 2026 boundary review (unreleased)
+
+Add async pre-action gating, await async callable objects, reject deferred execution through the synchronous gate, and exercise native SDK tool input guardrails with the real Runner.
+
+Use `await AsyncConfidenceEscalationMiddleware().call_guarded(action, confidence)` for async side effects. The async class lives in `confidence_escalation.async_middleware`. Low or missing confidence blocks before invocation; sync callables run in a worker thread, async callables and returned awaitables are awaited. Cancellation cannot undo effects already started. The synchronous gate rejects async actions and awaitable results; use the async API instead. Confidence checks do not replace identity/resource authorization.
+
+For OpenAI Agents SDK integration, install `pip install ".[dev,openai-agents]"` from this checkout on Python 3.10+. SDK 0.22.3 is tested through its actual Runner with a scripted local model and tracing disabled:
+
+```python
+from agents import function_tool
+from confidence_escalation.adapters.openai_agents import OpenAIAgentsEscalationAdapter
+adapter = OpenAIAgentsEscalationAdapter()
+
+@function_tool(tool_input_guardrails=[adapter.as_tool_guardrail()])
+async def protected_action() -> str:
+    return "performed"
+```
+
+Attach `adapter.as_hooks()` to Runner for lifecycle observations; hooks alone are not the execution boundary. Tool input guardrails raise the SDK tripwire before a triggered function tool executes. The adapter's risk-only score is conservative and is not calibrated confidence; with default thresholds it escalates both low-risk and high-risk tools. Supply a deliberately reviewed policy rather than assuming low-risk tools are automatically permitted. This does not cover hosted tools or calls outside the configured SDK tool path.
+
+[Official tool guardrail guidance](https://openai.github.io/openai-agents-python/guardrails/) distinguishes input guardrails before execution from output checks afterward. [Lifecycle signatures](https://openai.github.io/openai-agents-python/ref/lifecycle/) include agent, tool, response, and output arguments exercised by the regression test. Run `python -m pytest tests/test_openai_sdk_execution.py`; the dedicated CI installs the SDK so this check cannot silently skip there.

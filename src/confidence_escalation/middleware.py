@@ -9,6 +9,7 @@ without requiring framework-specific integration.
 from __future__ import annotations
 
 import datetime
+import inspect
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
@@ -134,15 +135,19 @@ class ConfidenceEscalationMiddleware:
         This confidence gate is not identity authorization. Run authorization separately.
         Missing evidence blocks regardless of threshold. Re-evaluate after human review.
         """
-        from confidence_escalation.scorer import validate_probability
-        validate_probability(confidence.value, "confidence")
-        if confidence.metadata.get("has_evidence") is False or confidence.metadata.get("missing_signal"):
-            raise PermissionError("Action blocked: confidence evidence is missing")
+        if inspect.iscoroutinefunction(action) or inspect.iscoroutinefunction(getattr(action, "__call__", None)):
+            raise TypeError("Use async call_guarded for asynchronous actions")
+        confidence.require_evidence()
         decision = self.evaluate(confidence, context)
         if decision.triggered:
             self.dispatch(decision, context)
             raise PermissionError(f"Action blocked: {decision.reason}")
-        return action(*args, **kwargs)
+        result = action(*args, **kwargs)
+        if inspect.isawaitable(result):
+            if inspect.iscoroutine(result):
+                result.close()
+            raise TypeError("Use async call_guarded for awaitable action results")
+        return result
 
     def call(
         self,
