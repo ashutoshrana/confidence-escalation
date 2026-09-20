@@ -6,6 +6,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.4.0] — Unreleased
+
+- Require explicit validated pre-action confidence evidence for native tool gates; tool risk remains separate policy context.
+- Missing evidence cannot pass through a zero threshold; an explicitly empty high-risk tool set is preserved.
+- Prepare OIDC publishing and attestations with exact verified artifacts; account registration and release verification remain required.
+
 ## [0.3.0] — 2026-09-19
 
 - Add async pre-action gating, await async callable objects, reject deferred execution through the synchronous gate, and exercise native SDK tool input guardrails with the real Runner.
