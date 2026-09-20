@@ -8,3 +8,4 @@
 | Async actions bypass intended gating and SDK hooks fail at runtime | Missing async gate and mock-only obsolete lifecycle contract | Share evidence validation, await callable results, and test native tool guardrails through installed SDK Runner |
 
 | SDK gates collapse every tool-risk-only score to zero or permit missing evidence at threshold zero | Negative risk weight was treated as correctness confidence and the gate skipped evidence validation | Require per-call ConfidenceScore evidence, validate it before policy evaluation, pass risk separately, and exercise native SDK blocked-invocation cases |
+| Evaluation appears safe when all tasks abstain or test outcomes are unknown | Zero accepted cases and missing labels were treated as favorable evidence | Report unknown intervals and labels explicitly; require nonzero labeled coverage and select thresholds only on disjoint validation groups |

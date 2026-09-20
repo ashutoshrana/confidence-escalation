@@ -268,6 +268,12 @@ Explicit call_guarded pre-action gating; finite/range input validation and missi
 
 Scores/thresholds must be finite in [0,1], log probabilities finite and non-positive. Missing signals are marked; weights are heuristics, not calibrated probabilities. Run `python benchmarks/evaluate.py` to reproduce [results](benchmarks/results.json). Six synthetic hand-labeled cases illustrate coverage, error/abstention, Brier score, and aggregate confidence bias. They are not representative or fitted calibration; collect independently labeled domain outcomes before choosing deployment thresholds.
 
+For your own labeled tasks, use the [held-out evaluation workflow](benchmarks/README.md).
+It separates validation threshold selection from test reporting, compares supplied
+scores with simpler baselines, rejects overlapping groups, and keeps unknown
+outcomes explicit. Brier/reliability metrics require a declared probability target;
+no calibration model or measured production improvement is supplied.
+
 ## September 2026 boundary review (0.3.0)
 
 Add async pre-action gating, await async callable objects, reject deferred execution through the synchronous gate, and exercise native SDK tool input guardrails with the real Runner.
