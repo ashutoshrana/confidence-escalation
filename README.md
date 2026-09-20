@@ -281,11 +281,32 @@ from agents import function_tool
 from confidence_escalation.adapters.openai_agents import OpenAIAgentsEscalationAdapter
 adapter = OpenAIAgentsEscalationAdapter()
 
-@function_tool(tool_input_guardrails=[adapter.as_tool_guardrail()])
+# Populate from application-controlled pre-action evaluation, keyed by call ID.
+# An empty mapping blocks every call; never populate it with a constant approval.
+evidence_by_call_id = {}
+
+def evidence_for_call(data):
+    return evidence_by_call_id.get(data.context.tool_call_id)
+
+@function_tool(tool_input_guardrails=[adapter.as_tool_guardrail(evidence_for_call)])
 async def protected_action() -> str:
     return "performed"
 ```
 
-Attach `adapter.as_hooks()` to Runner for lifecycle observations; hooks alone are not the execution boundary. Tool input guardrails raise the SDK tripwire before a triggered function tool executes. The adapter's risk-only score is conservative and is not calibrated confidence; with default thresholds it escalates both low-risk and high-risk tools. Supply a deliberately reviewed policy rather than assuming low-risk tools are automatically permitted. This does not cover hosted tools or calls outside the configured SDK tool path.
+Attach `adapter.as_hooks()` to Runner for lifecycle observations; hooks alone are not the execution boundary. Tool input guardrails raise the SDK tripwire before a triggered function tool executes. **Migration to explicit evidence:** direct `evaluate_tool_gate()` calls must supply
+`confidence=ConfidenceScore(...)`; native guardrails use a synchronous or asynchronous
+`evidence_provider(data)` returning a `ConfidenceScore` for that invocation. Missing
+or invalid evidence blocks even at threshold zero. Provider failures also stop the
+call; the SDK may wrap the exception. No score from an earlier response is reused.
+Tool risk is separate `tool_risk` policy context and never converted into correctness
+confidence. The default threshold policy compares the supplied confidence; use an
+explicit policy if risk should alter the decision. `high_risk_tools=None` selects
+defaults, while an empty set now stays empty. Lifecycle tool hooks do not evaluate
+confidence policies without evidence. Post-response scoring is unchanged.
+
+The application owns evidence provenance, freshness, binding to tool arguments,
+and resource authorization. Supplying a number does not prove calibration or
+correctness. The example mapping is an integration placeholder, not durable approval
+storage. This does not cover hosted tools or calls outside the configured SDK tool path.
 
 [Official tool guardrail guidance](https://openai.github.io/openai-agents-python/guardrails/) distinguishes input guardrails before execution from output checks afterward. [Lifecycle signatures](https://openai.github.io/openai-agents-python/ref/lifecycle/) include agent, tool, response, and output arguments exercised by the regression test. Run `python -m pytest tests/test_openai_sdk_execution.py`; the dedicated CI installs the SDK so this check cannot silently skip there.
