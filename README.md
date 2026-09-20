@@ -10,19 +10,30 @@
 
 Multi-signal confidence scoring (logprob + verbalized + ASR + tool risk) with threshold-based escalation policies and pluggable handlers. Works with **LangChain**, **LangGraph**, **CrewAI**, **AutoGen**, **Google ADK**, and any Python agent framework.
 
-Addresses **OWASP Agentic AI Top 10 ASI-09**: Human-Agent Trust Exploitation — prevents agents from taking high-stakes actions when confidence is insufficient.
+Provides confidence-based controls relevant to human-agent trust risks; execution is blocked only where your application explicitly wires in a pre-action gate.
 
 ---
 
-## The Problem
+## What it does and when to use it
 
-LLM agents fail silently. When an agent is uncertain, it still returns a response — often confidently-worded — with no mechanism to:
-- Detect that confidence is low before executing a high-risk tool call
-- Route uncertain responses to a human reviewer
-- Escalate to a stronger model when needed
-- Produce a compliance audit trail of every escalation event
+This Python library helps agent application developers decide whether to continue, request review, restrict tools, or try another model when available confidence signals are weak. Use it when you can supply model or tool-risk signals and need a consistent escalation policy. The current published version is [0.3.0](https://pypi.org/project/confidence-escalation/0.3.0/).
 
-`confidence-escalation` solves all four.
+For example, a support agent proposes an account change. Your application first checks the user's permission, then evaluates confidence and invokes the change through the pre-action gate. If evidence is missing or the policy escalates, the action is not invoked. A review handler can record or route the request; your application must recheck permission and policy before resuming it.
+
+### Choose the right execution boundary
+
+| Need | Use | Limit |
+|---|---|---|
+| Review an answer or trigger a retry after generation | `ConfidenceEscalationMiddleware.call` | Scores after the wrapped operation; cannot undo its side effects |
+| Check confidence before invoking an action | `ConfidenceEscalationMiddleware.call_guarded` | Requires evidence available before execution; does not grant resource access |
+| Gate an async action | `AsyncConfidenceEscalationMiddleware.call_guarded` | Await the gate; cancellation cannot undo effects already started |
+| Gate OpenAI Agents SDK function tools | `as_tool_guardrail()` on `OpenAIAgentsEscalationAdapter` | Configure each tool; lifecycle hooks alone do not block execution |
+
+Start with [basic scoring](#basic-scoring) and the [policy example](#threshold-policy--human-in-loop). For execution details, see the [sync middleware](src/confidence_escalation/middleware.py), [async middleware](src/confidence_escalation/async_middleware.py), and [SDK guardrail example](#september-2026-boundary-review-030). The [project guide](https://github.com/ashutoshrana/ashutoshrana/blob/main/PROJECT_GUIDE.md) compares the related libraries.
+
+### What the score does not prove
+
+A score is a weighted heuristic, not a verified probability that an answer is correct. Verbalized confidence can be wrong; missing signals must not be treated as reassuring evidence. Choose thresholds using labeled outcomes from your own use case. The included [six-case synthetic evaluation](benchmarks/results.json) illustrates metrics, not production calibration. Confidence gating also does not replace identity checks, resource authorization, durable approval storage, or legal review.
 
 ---
 
