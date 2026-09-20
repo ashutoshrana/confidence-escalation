@@ -1,36 +1,10 @@
-"""
-OpenAI Agents SDK adapter for confidence-escalation.
+"""OpenAI Agents SDK adapter with explicit pre-action evidence.
 
-Hooks into the OpenAI Agents SDK lifecycle via ``RunHooksBase.on_tool_start``
-and ``on_llm_end`` to score confidence and apply the configured escalation
-policy before any tool invocation.
-
-EU AI Act Art. 14 compliance: every tool call is pre-screened;
-low-confidence calls are routed to HumanInLoopHandler before execution.
-
-OWASP Agentic AI ASI-09: confidence-gated dispatch prevents autonomous
-tool use when the agent's certainty falls below the configured threshold.
-
-Install::
-
-    pip install 'confidence-escalation[openai-agents]'
-    pip install openai-agents>=0.14.0
-
-Usage::
-
-    from confidence_escalation.adapters.openai_agents import OpenAIAgentsEscalationAdapter
-
-    adapter = OpenAIAgentsEscalationAdapter(threshold=0.65)
-
-    # Register hooks on the Runner:
-    result = await Runner.run(
-        agent,
-        input=user_message,
-        hooks=adapter.as_hooks(),
-    )
-
-    # Or check per-response after the run:
-    adapter.on_llm_response(response_text, logprobs=logprobs)
+Attach ``as_tool_guardrail(evidence_provider)`` to each protected function tool.
+The provider receives SDK ToolInputGuardrailData and returns a ConfidenceScore
+(or an awaitable score) for that invocation. Missing evidence blocks execution.
+Lifecycle hooks observe responses; they are not an authorization boundary.
+Install the optional dependency with ``confidence-escalation[openai-agents]``.
 """
 
 from __future__ import annotations
@@ -38,13 +12,13 @@ from __future__ import annotations
 import datetime
 import json
 import logging
-import json
-from typing import Any, Dict, List, Optional
+import inspect
+from typing import Any, Callable, Dict, List, Optional
 
 from confidence_escalation.handlers import EscalationHandler, HumanInLoopHandler, ComplianceLoggingHandler
 from confidence_escalation.middleware import ConfidenceEscalationMiddleware
 from confidence_escalation.policy import EscalationAction, EscalationPolicy, ThresholdPolicy
-from confidence_escalation.scorer import MultiSignalConfidenceScorer
+from confidence_escalation.scorer import ConfidenceScore, MultiSignalConfidenceScorer, validate_probability
 
 __all__ = ["OpenAIAgentsEscalationAdapter", "OpenAIAgentsHooks"]
 
@@ -73,40 +47,12 @@ class OpenAIAgentsHooks(_RunHooksBase):
         self._adapter = adapter
 
     async def on_tool_start(self, ctx: Any, agent: Any, tool: Any = None) -> None:
-        """
-        Record tool-risk observations before a tool invocation.
-
-        Accesses tool name and arguments from ``ToolContext`` if available,
-        computes tool risk score, and evaluates confidence policy.
-        Raises ``HumanInLoopHandler.HumanReviewRequired`` if escalation
-        is triggered and ``raise_on_trigger=True``.
-        """
+        """Observe tool impact without generating a confidence or approval verdict."""
         if tool is None:  # Retain legacy direct two-argument calls.
             tool = agent
         tool_name = getattr(tool, "name", str(tool))
-        tool_arguments: Dict[str, Any] = {}
-
-        # ToolContext exposes tool_call_id and tool_arguments when available
-        if hasattr(ctx, "tool_arguments") and ctx.tool_arguments:
-            tool_arguments = ctx.tool_arguments
-            if isinstance(tool_arguments, str):
-                tool_arguments = json.loads(tool_arguments)
-            if not isinstance(tool_arguments, dict):
-                raise ValueError("Tool arguments must be a JSON object")
-
         tool_risk = self._adapter._tool_risk_for(tool_name)
-        context = {
-            "event": "on_tool_start",
-            "tool_name": tool_name,
-            "tool_call_id": getattr(ctx, "tool_call_id", None),
-            "tool_arguments_keys": list(tool_arguments.keys()),
-            "regulation_citation": "EU AI Act Art. 14 §1(d) — human override capability",
-        }
-        self._adapter.evaluate_tool_gate(
-            tool_name=tool_name,
-            tool_risk=tool_risk,
-            context=context,
-        )
+        logger.debug("Observed tool start: %s (risk=%.2f)", tool_name, tool_risk)
 
     async def on_llm_end(self, ctx: Any, agent: Any, response: Any = None) -> None:
         """Post-LLM-response confidence scoring (EU AI Act Art. 12 audit log)."""
@@ -163,40 +109,16 @@ class OpenAIAgentsHooks(_RunHooksBase):
 
 
 class OpenAIAgentsEscalationAdapter:
-    """
-    Confidence-gated escalation adapter for the OpenAI Agents SDK.
+    """Evaluate explicit evidence at native function-tool input boundaries.
 
-    Observes tool calls via ``RunHooksBase.on_tool_start`` and post-LLM
-    responses via ``on_llm_end`` to apply a configurable threshold policy.
-
-    EU AI Act Art. 14 compliance:
-        - Pre-tool gate blocks high-risk tool calls when confidence is low
-        - Every decision produces a ``ComplianceLoggingHandler`` audit entry
-        - ``HumanInLoopHandler`` queues escalated tasks for human review
-
-    OWASP Agentic AI ASI-09:
-        - Confidence-gated dispatch prevents autonomous tool use below threshold
-        - Multi-signal scoring: logprobs + verbalized confidence + tool risk
-
-    Args:
-        threshold: Minimum confidence to allow autonomous tool execution.
-            Default 0.65 (EU AI Act Art. 14 HIPAA/Annex III recommended).
-        critical_threshold: Below this, ABORT instead of escalate.
-            Default 0.25.
-        policy: Override the default ThresholdPolicy.
-        handlers: Override the default handler list.
-        high_risk_tools: Tool names that apply a tighter threshold (+0.15).
-
-    Example::
-
-        adapter = OpenAIAgentsEscalationAdapter(
-            threshold=0.65,
-            high_risk_tools=["send_email", "delete_record", "transfer_funds"],
-        )
-        result = await Runner.run(agent, input="...", hooks=adapter.as_hooks())
+    Thresholds are application choices, not regulatory recommendations. Tool risk
+    is passed separately in policy context and is not a correctness probability.
+    high_risk_tools=None uses defaults; an empty set classifies no tools as high
+    risk. Configure a policy that consumes tool_risk if action impact should alter
+    the decision. Resource authorization remains the application's responsibility.
     """
 
-    # Tools that should apply a tighter confidence threshold
+    # Default tool impact labels supplied to policy context
     _DEFAULT_HIGH_RISK_TOOLS = frozenset({
         "send_email", "send_message", "post_message",
         "delete_record", "delete_file", "delete_document",
@@ -215,7 +137,7 @@ class OpenAIAgentsEscalationAdapter:
     ):
         self.threshold = threshold
         self.critical_threshold = critical_threshold
-        self.high_risk_tools = high_risk_tools or self._DEFAULT_HIGH_RISK_TOOLS
+        self.high_risk_tools = self._DEFAULT_HIGH_RISK_TOOLS if high_risk_tools is None else high_risk_tools
         self._local_events: List[Any] = []
         self._middleware = ConfidenceEscalationMiddleware(
             scorer=MultiSignalConfidenceScorer(),
@@ -242,14 +164,23 @@ class OpenAIAgentsEscalationAdapter:
         tool_name: str,
         tool_risk: float,
         context: Optional[Dict[str, Any]] = None,
+        *,
+        confidence: Optional[ConfidenceScore] = None,
     ) -> Dict[str, Any]:
-        """
-        Evaluate confidence before a tool call.
+        """Evaluate explicit pre-action evidence; risk remains separate policy context.
 
-        Returns a result dict; raises ``HumanReviewRequired`` if the
-        HumanInLoopHandler is configured with ``raise_on_trigger=True``.
+        Missing evidence raises PermissionError even for a zero threshold. No score
+        is inferred from tool risk, tool names, or a previous response. The caller
+        owns evidence provenance, freshness, and resource authorization.
         """
-        confidence = self._middleware.score(tool_call_risk=tool_risk)
+        validate_probability(tool_risk, "tool_risk")
+        if confidence is None:
+            raise PermissionError("Action blocked: pre-action confidence evidence is required")
+        if not isinstance(confidence, ConfidenceScore):
+            raise TypeError("confidence must be a ConfidenceScore")
+        confidence.require_evidence()
+        context = dict(context or {})
+        context.update(tool_name=tool_name, tool_risk=tool_risk)
         result = self._middleware.evaluate(confidence, context)
         handler_results = []
         if result.triggered:
@@ -294,18 +225,29 @@ class OpenAIAgentsEscalationAdapter:
         )
         self._local_events.append(event)
 
-    def as_tool_guardrail(self) -> Any:
-        """Return an SDK input guardrail that blocks triggered function-tool calls.
+    def as_tool_guardrail(self, evidence_provider: Optional[Callable[[Any], Any]] = None) -> Any:
+        """Build an SDK function-tool input guardrail using per-invocation evidence.
 
-        Requires the optional openai-agents SDK. Attach to tool_input_guardrails;
-        lifecycle hooks alone are observational, not an execution boundary.
+        evidence_provider receives the SDK ToolInputGuardrailData and returns a
+        ConfidenceScore (or an awaitable score). None/missing/invalid evidence blocks
+        execution. Provider errors propagate; no previous score is reused. Hooks
+        remain observations and do not substitute for this execution boundary.
         """
         from agents.tool_guardrails import tool_input_guardrail, ToolGuardrailFunctionOutput
 
         @tool_input_guardrail
         async def confidence_gate(data: Any) -> Any:
             name = data.context.tool_name
-            result = self.evaluate_tool_gate(name, self._tool_risk_for(name), {"event": "tool_input_guardrail"})
+            confidence = evidence_provider(data) if evidence_provider is not None else None
+            if inspect.isawaitable(confidence):
+                confidence = await confidence
+            try:
+                result = self.evaluate_tool_gate(
+                    name, self._tool_risk_for(name), {"event": "tool_input_guardrail"},
+                    confidence=confidence,
+                )
+            except (PermissionError, ValueError, TypeError):
+                return ToolGuardrailFunctionOutput.raise_exception({"reason": "missing or invalid confidence evidence"})
             if result["triggered"]:
                 return ToolGuardrailFunctionOutput.raise_exception({"reason": "confidence escalation"})
             return ToolGuardrailFunctionOutput.allow()

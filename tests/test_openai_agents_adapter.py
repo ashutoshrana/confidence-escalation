@@ -6,6 +6,7 @@ import asyncio
 from unittest.mock import MagicMock
 
 import pytest
+from confidence_escalation import ConfidenceScore, ScoringMethod
 
 from confidence_escalation.adapters.openai_agents import (
     OpenAIAgentsEscalationAdapter,
@@ -98,7 +99,7 @@ class TestEvaluateToolGate:
         )
         result = adapter.evaluate_tool_gate(
             tool_name="search_documents",
-            tool_risk=0.2,
+            tool_risk=0.2, confidence=ConfidenceScore(.9, ScoringMethod.COMPOSITE),
         )
         assert result["triggered"] is False
         assert "confidence" in result
@@ -108,7 +109,7 @@ class TestEvaluateToolGate:
         adapter = OpenAIAgentsEscalationAdapter(threshold=0.99, critical_threshold=0.0)
         result = adapter.evaluate_tool_gate(
             tool_name="delete_record",
-            tool_risk=0.8,
+            tool_risk=0.8, confidence=ConfidenceScore(.2, ScoringMethod.COMPOSITE),
         )
         assert result["triggered"] is True
 
@@ -117,7 +118,7 @@ class TestEvaluateToolGate:
         context = {"session_id": "sess_abc", "regulation": "EU AI Act Art. 14"}
         result = adapter.evaluate_tool_gate(
             tool_name="delete_record",
-            tool_risk=0.8,
+            tool_risk=0.8, confidence=ConfidenceScore(.2, ScoringMethod.COMPOSITE),
             context=context,
         )
         assert result["triggered"] is True
@@ -125,7 +126,7 @@ class TestEvaluateToolGate:
 
     def test_events_log_after_gate_triggered(self):
         adapter = OpenAIAgentsEscalationAdapter(threshold=0.99, critical_threshold=0.0)
-        adapter.evaluate_tool_gate("delete_record", tool_risk=0.8)
+        adapter.evaluate_tool_gate("delete_record", tool_risk=0.8, confidence=ConfidenceScore(.2, ScoringMethod.COMPOSITE))
         assert len(adapter.events) == 1
         event = adapter.events[0]
         assert event.triggered is True
@@ -135,7 +136,7 @@ class TestEvaluateToolGate:
         adapter = OpenAIAgentsEscalationAdapter(
             policy=ThresholdPolicy(threshold=0.0, action=EscalationAction.NONE, critical_threshold=None)
         )
-        adapter.evaluate_tool_gate("search_docs", tool_risk=0.2)
+        adapter.evaluate_tool_gate("search_docs", tool_risk=0.2, confidence=ConfidenceScore(.9, ScoringMethod.COMPOSITE))
         # Even non-triggered gate is recorded
         assert len(adapter.events) == 1
         assert adapter.events[0].triggered is False
@@ -245,7 +246,7 @@ class TestOpenAIAgentsHooks:
         # Should not raise AttributeError — fallback to str(tool)
         _run(hooks.on_tool_start(ctx, "bare_string_tool"))
 
-    def test_high_threshold_escalation_captured(self):
+    def test_tool_hook_does_not_invent_confidence_verdict(self):
         captured = []
 
         def on_esc(result):
@@ -264,8 +265,8 @@ class TestOpenAIAgentsHooks:
         ctx = _make_ctx()
         tool = _make_tool("delete_record")
         _run(hooks.on_tool_start(ctx, tool))
-        assert len(captured) == 1
-        assert captured[0].triggered is True
+        assert len(captured) == 0
+        assert adapter.events == []
 
     def test_eu_ai_act_art14_context_in_gate(self):
         """EU AI Act Art. 14 regulation citation must appear in escalation context."""
@@ -286,4 +287,4 @@ class TestOpenAIAgentsHooks:
         hooks = adapter.as_hooks()
         ctx = _make_ctx()
         _run(hooks.on_tool_start(ctx, _make_tool("send_email")))
-        assert len(captured_contexts) == 1
+        assert len(captured_contexts) == 0
