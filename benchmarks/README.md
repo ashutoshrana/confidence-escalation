@@ -38,7 +38,11 @@ before sharing the report.
 
 The row above illustrates the schema, not a usable evaluation dataset. Supply
 nonempty validation and test splits with disjoint conversation/task-family groups,
-unique task IDs, and the same named score methods on every row. `risk_rule` is
+one independently labeled outcome per group, unique task IDs, and the same named
+score methods on every row. Repeated groups are rejected: this tool's row-level
+intervals cannot treat turns from one conversation as independent trials. Aggregate
+the outcome at the independent unit using a predeclared rubric, or use a separate
+cluster-aware evaluation method. `risk_rule` is
 reserved. All scores and risks must be finite numbers in [0,1]. Validation labels
 must be boolean; test labels can be null, which remains unknown. Record labeling
 rubric, disagreement, cohort selection and model versions alongside the dataset.

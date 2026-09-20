@@ -65,3 +65,11 @@ def test_probability_metrics_require_declared_target():
     result = evaluation.evaluate(data, .1)
     assert result["methods"]["composite"]["brier_score_labeled"] == pytest.approx(.01)
     assert "brier_score_labeled" not in result["methods"]["risk_rule"]
+
+
+def test_repeated_conversation_is_not_independent_evidence():
+    data = dataset()
+    for row in data["rows"]:
+        row["group"] = row["split"] + "-single-conversation"
+    with pytest.raises(ValueError, match="one outcome per independent group"):
+        evaluation.evaluate(data, .05)

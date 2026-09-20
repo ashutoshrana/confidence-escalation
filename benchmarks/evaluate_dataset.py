@@ -35,8 +35,11 @@ def validate(dataset):
         if split not in ("validation", "test"):
             raise ValueError("split must be validation or test")
         splits.add(split)
-        if groups.setdefault(row["group"], split) != split:
-            raise ValueError("related groups cannot cross validation/test splits")
+        if row["group"] in groups:
+            if groups[row["group"]] != split:
+                raise ValueError("related groups cannot cross validation/test splits")
+            raise ValueError("one outcome per independent group required for row-level intervals")
+        groups[row["group"]] = split
         if "correct" not in row or (row["correct"] is not None and type(row["correct"]) is not bool):
             raise ValueError("correct must be boolean or null")
         if split == "validation" and row["correct"] is None:
