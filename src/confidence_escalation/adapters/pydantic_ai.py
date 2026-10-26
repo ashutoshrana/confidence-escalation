@@ -4,19 +4,13 @@ Pydantic AI adapter for confidence-escalation.
 Hooks into the Pydantic AI ``before_tool_execute`` lifecycle event to apply
 confidence-gated escalation before any tool execution.
 
-Pydantic AI's ``before_tool_execute`` hook can raise ``SkipToolExecution``
-to block a tool call entirely — making it the ideal EU AI Act Art. 14
-human override integration point.
-
-EU AI Act Art. 14 compliance: every tool call is pre-screened;
-low-confidence calls skip execution and route to HumanInLoopHandler.
-
-OWASP Agentic AI ASI-09: confidence-gated dispatch.
+The native capability raises the SDK-compatible ``SkipToolExecution``
+before an escalated tool executes. This applies the configured confidence
+policy; it does not establish legal compliance or resource authorization.
 
 Install::
 
     pip install 'confidence-escalation[pydantic-ai]'
-    pip install 'pydantic-ai>=1.0.0'
 
 Usage::
 
@@ -28,8 +22,8 @@ Usage::
     hooks = adapter.as_hooks()
 
     agent = Agent(
-        "anthropic:claude-sonnet-4-6",
-        tools=[my_tool],
+        model,
+        tools=[my_tool], capabilities=[hooks],
     )
 
     # Option 2: integrate with existing hooks
@@ -52,13 +46,19 @@ __all__ = ["PydanticAIEscalationAdapter", "PydanticAIHooks", "SkipToolExecution"
 
 logger = logging.getLogger(__name__)
 
+try:
+    from pydantic_ai.capabilities import AbstractCapability
+    from pydantic_ai.exceptions import SkipToolExecution as _NativeSkipToolExecution
+except ImportError:
+    AbstractCapability = object
+    _NativeSkipToolExecution = Exception
 
-class SkipToolExecution(Exception):
+
+class SkipToolExecution(_NativeSkipToolExecution):
     """
     Raised by ``before_tool_execute`` to skip tool execution.
 
-    Mirrors pydantic-ai's ``SkipToolExecution`` exception — compatible with
-    the real SDK when installed, and usable standalone for testing.
+    Subclasses the SDK exception when installed and remains usable standalone.
 
     Attributes:
         result: The alternative result returned to the agent instead of
@@ -68,13 +68,14 @@ class SkipToolExecution(Exception):
     def __init__(self, result: str = "Tool execution blocked: confidence below threshold. Human review required."):
         self.result = result
         super().__init__(result)
+        self.args = (result,)
 
 
-class PydanticAIHooks:
+class PydanticAIHooks(AbstractCapability):
     """
     Pydantic AI ``Hooks``-compatible object for confidence-gated dispatch.
 
-    Implements the ``before_tool_execute`` protocol used by pydantic-ai >= 1.0.
+    Uses the native AbstractCapability protocol when the SDK is installed.
 
     When confidence falls below the policy threshold:
     - Raises ``SkipToolExecution`` with a human-review message

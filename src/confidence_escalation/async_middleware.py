@@ -5,7 +5,7 @@ AsyncConfidenceEscalationMiddleware wraps async agent steps — LangGraph nodes,
 CrewAI Flows callbacks (v0.28+), AutoGen async handlers — with non-blocking
 confidence scoring and concurrent handler dispatch.
 
-Compatible with LangChain stream_events v3 API (LangChain v0.5+).
+Accepts async iterators of text tokens. Score structured framework events explicitly.
 """
 
 from __future__ import annotations
@@ -13,12 +13,11 @@ from __future__ import annotations
 import asyncio
 import datetime
 import inspect
-from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 
 from confidence_escalation.handlers import EscalationHandler
 from confidence_escalation.middleware import EscalationEvent
-from confidence_escalation.policy import EscalationAction, EscalationPolicy, PolicyResult
+from confidence_escalation.policy import EscalationPolicy, PolicyResult
 from confidence_escalation.scorer import ConfidenceScore, MultiSignalConfidenceScorer
 
 __all__ = ["AsyncConfidenceEscalationMiddleware"]
@@ -32,7 +31,7 @@ class AsyncConfidenceEscalationMiddleware:
     - Awaits async agent steps; runs sync steps in executor (never blocks event loop)
     - Streaming token accumulation via async generator wrapper
     - Concurrent handler dispatch via asyncio.gather
-    - LangChain stream_events v3 and CrewAI Flows compatible
+    - Post-stream decisions for text-token iterators
 
     Example::
 
@@ -113,6 +112,13 @@ class AsyncConfidenceEscalationMiddleware:
         policy_result = self._evaluate(confidence, context)
         handler_results = await self._dispatch(policy_result, context) if policy_result.triggered else []
 
+        event = self._record_event(confidence, policy_result, handler_results, context)
+        return {"response": response, "confidence": confidence.value, "escalation": event.to_dict()}
+
+    def _record_event(
+        self, confidence: ConfidenceScore, policy_result: PolicyResult,
+        handler_results: List[Dict[str, Any]], context: Optional[Dict[str, Any]],
+    ) -> EscalationEvent:
         event = EscalationEvent(
             timestamp=datetime.datetime.utcnow().isoformat(),
             triggered=policy_result.triggered,
@@ -125,7 +131,7 @@ class AsyncConfidenceEscalationMiddleware:
         self._events.append(event)
         if self.event_sink:
             self.event_sink(event)
-        return {"response": response, "confidence": confidence.value, "escalation": event.to_dict()}
+        return event
 
     async def stream(
         self,
@@ -140,7 +146,8 @@ class AsyncConfidenceEscalationMiddleware:
 
         Tokens are yielded immediately as they arrive. Once the stream is exhausted,
         the full response is scored and an escalation event is emitted.
-        Compatible with LangChain stream_events v3 chunk format.
+        This is post-response scoring: tokens have already been delivered. Use
+        call_guarded for pre-action gating. Pass text tokens, not framework event dicts.
         """
         accumulated: List[str] = []
         async for chunk in agent_step(*args, **kwargs):
@@ -154,8 +161,8 @@ class AsyncConfidenceEscalationMiddleware:
             tool_call_risk=tool_call_risk,
         )
         policy_result = self._evaluate(confidence, context)
-        if policy_result.triggered:
-            await self._dispatch(policy_result, context)
+        handler_results = await self._dispatch(policy_result, context) if policy_result.triggered else []
+        self._record_event(confidence, policy_result, handler_results, context)
 
     def _evaluate(
         self,
@@ -176,14 +183,11 @@ class AsyncConfidenceEscalationMiddleware:
         matching = [h for h in self.handlers if h.supports(result.action)]
         if not matching:
             return []
-        loop = asyncio.get_running_loop()
-        tasks: List[Any] = []
-        for handler in matching:
-            if asyncio.iscoroutinefunction(handler.handle):
-                tasks.append(handler.handle(result, context))
-            else:
-                tasks.append(loop.run_in_executor(None, lambda h=handler: h.handle(result, context)))
+        tasks = [self._invoke(handler.handle, result, context) for handler in matching]
         results = await asyncio.gather(*tasks, return_exceptions=True)
+        for outcome in results:
+            if isinstance(outcome, BaseException):
+                raise outcome
         return [r for r in results if isinstance(r, dict)]
 
     @property

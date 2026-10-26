@@ -280,7 +280,7 @@ Add async pre-action gating, await async callable objects, reject deferred execu
 
 Use `await AsyncConfidenceEscalationMiddleware().call_guarded(action, confidence)` for async side effects. The async class lives in `confidence_escalation.async_middleware`. Low or missing confidence blocks before invocation; sync callables run in a worker thread, async callables and returned awaitables are awaited. Cancellation cannot undo effects already started. The synchronous gate rejects async actions and awaitable results; use the async API instead. Confidence checks do not replace identity/resource authorization.
 
-For OpenAI Agents SDK integration, install `pip install ".[dev,openai-agents]"` from this checkout on Python 3.10+. SDK 0.22.3 is tested through its actual Runner with a scripted local model and tracing disabled:
+For OpenAI Agents SDK integration, install `pip install ".[dev,openai-agents]"` from this checkout on Python 3.10+. SDK 0.22.3 and 0.24.0 are tested through its actual Runner with a scripted local model and tracing disabled:
 
 ```python
 from agents import function_tool
@@ -316,3 +316,17 @@ correctness. The example mapping is an integration placeholder, not durable appr
 storage. This does not cover hosted tools or calls outside the configured SDK tool path.
 
 [Official tool guardrail guidance](https://openai.github.io/openai-agents-python/guardrails/) distinguishes input guardrails before execution from output checks afterward. [Lifecycle signatures](https://openai.github.io/openai-agents-python/ref/lifecycle/) include agent, tool, response, and output arguments exercised by the regression test. Run `python -m pytest tests/test_openai_sdk_execution.py`; the dedicated CI installs the SDK so this check cannot silently skip there.
+
+Completed `AsyncConfidenceEscalationMiddleware.stream()` token streams now retain
+and deliver their final decision to `events` and `event_sink`, including handler
+results. Tokens are already visible before this evaluation; use `call_guarded`
+for pre-action checks. Handler failures propagate after all dispatched handlers
+finish; they are not successful escalation delivery. Interrupted streams do not
+produce a completed-response decision.
+
+On Python 3.11+, the optional `pydantic-ai` extra supplies the native capability integration,
+tested with Pydantic AI 2.61.0 and its provider-free `TestModel`. Use
+`Agent(model, capabilities=[adapter.as_hooks()])`. Native SDK skip exceptions
+prevent escalated tools from executing. The configured score can use prior
+response text; it is not independent authorization or calibrated correctness
+evidence. Run `pytest tests/test_pydantic_sdk_execution.py` with that extra installed.
