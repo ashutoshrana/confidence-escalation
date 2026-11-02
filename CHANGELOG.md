@@ -6,6 +6,13 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.6.0] — Unreleased
+
+- Require explicit per-invocation ConfidenceScore evidence for the native Pydantic AI pre-tool capability; request/user/tool text no longer supplies confidence. Missing or invalid evidence blocks even at threshold zero.
+- Migration: provide evidence_provider(ctx, call, tool_def, args) on PydanticAIEscalationAdapter; direct gate calls use confidence=ConfidenceScore(...). The application owns evidence provenance, freshness, argument binding and authorization.
+- Retain completed async call/stream decisions with successful and failed handler outcomes before rethrowing the original handler exception. A simultaneous sink exception is chained behind that original error; sink-only failure propagates after the local event is retained. Event sinks must complete synchronously.
+- Recommend maintained Python 3.11+ production runtimes; retain legacy Python 3.9 core compatibility and the existing higher dev/SDK floors.
+
 ## [0.5.0] — Unreleased
 
 - Development/test tooling now requires Python 3.10+ and patched `pytest>=9.0.3`; the dependency-free base runtime still supports Python 3.9. CI checks Python 3.9 through an isolated installed-wheel smoke and compile check without development dependencies.

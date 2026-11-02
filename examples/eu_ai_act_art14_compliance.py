@@ -39,6 +39,7 @@ from confidence_escalation.adapters.pydantic_ai import (
 )
 from confidence_escalation.adapters.openai_agents import OpenAIAgentsEscalationAdapter
 from confidence_escalation.policy import EscalationAction, ThresholdPolicy
+from confidence_escalation.scorer import ConfidenceScore, ScoringMethod
 
 
 # ---------------------------------------------------------------------------
@@ -60,6 +61,7 @@ def demo_pydantic_ai_block() -> None:
 
     adapter = PydanticAIEscalationAdapter(
         threshold=0.70,
+        evidence_provider=lambda *_: ConfidenceScore(0.2, ScoringMethod.COMPOSITE),
         high_risk_tools=frozenset({"update_student_record", "send_financial_aid_email"}),
     )
     hooks = adapter.as_hooks()
@@ -95,16 +97,17 @@ def demo_pydantic_ai_block() -> None:
 
 
 def demo_pydantic_ai_pass() -> None:
-    """EU AI Act Art. 14: High-confidence response allows tool to execute."""
+    """EU AI Act Art. 14: Explicit synthetic evidence allows the demonstration tool to execute."""
     section("2. Pydantic AI — HIGH CONFIDENCE → tool allowed")
 
     adapter = PydanticAIEscalationAdapter(
         threshold=0.65,
+        evidence_provider=lambda *_: ConfidenceScore(0.92, ScoringMethod.COMPOSITE),
         high_risk_tools=frozenset({"delete_record"}),
     )
     hooks = adapter.as_hooks()
 
-    # Simulate RunContext with a prior high-confidence assistant message
+    # Message history is ignored; the application supplies per-call evidence above.
     msg = MagicMock()
     part = MagicMock()
     part.content = (
@@ -123,7 +126,7 @@ def demo_pydantic_ai_pass() -> None:
 
     args = {"student_id": "S12345", "fields": ["gpa", "courses"]}
 
-    print("\n[Tool call] search_student_records — low risk, 92% confidence in history")
+    print("\n[Tool call] search_student_records — low risk, explicit synthetic confidence 0.92")
 
     try:
         result_args = asyncio.run(
@@ -199,6 +202,7 @@ def demo_escalation_callback() -> None:
             on_escalation=on_escalation,
         ),
         high_risk_tools=frozenset({"process_payment", "update_credentials"}),
+        evidence_provider=lambda *_: ConfidenceScore(0.2, ScoringMethod.COMPOSITE),
     )
     hooks = adapter.as_hooks()
 

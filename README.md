@@ -54,6 +54,8 @@ A score is a weighted heuristic, not a verified probability that an answer is co
 
 ### Installation
 
+Use a maintained Python 3.11+ runtime for production. Python 3.9/3.10 core compatibility remains available as legacy support; development and optional SDK floors are separate.
+
 The base runtime supports Python 3.9+. Development and tests (`[dev]`) require
 Python 3.10+ with patched `pytest>=9.0.3`. Python 3.9 CI runs an installed-wheel
 core API smoke and compile check without development dependencies.
@@ -324,15 +326,28 @@ storage. This does not cover hosted tools or calls outside the configured SDK to
 [Official tool guardrail guidance](https://openai.github.io/openai-agents-python/guardrails/) distinguishes input guardrails before execution from output checks afterward. [Lifecycle signatures](https://openai.github.io/openai-agents-python/ref/lifecycle/) include agent, tool, response, and output arguments exercised by the regression test. Run `python -m pytest tests/test_openai_sdk_execution.py`; the dedicated CI installs the SDK so this check cannot silently skip there.
 
 Completed `AsyncConfidenceEscalationMiddleware.stream()` token streams now retain
-and deliver their final decision to `events` and `event_sink`, including handler
-results. Tokens are already visible before this evaluation; use `call_guarded`
+and deliver their final decision to `events` and a synchronous `event_sink`, including
+successful results and failed-handler outcomes. Tokens are already visible before this evaluation; use `call_guarded`
 for pre-action checks. Handler failures propagate after all dispatched handlers
-finish; they are not successful escalation delivery. Interrupted streams do not
+finish; they are not successful escalation delivery. If both a handler and the sink
+fail, the original handler exception is raised with the sink exception as its cause.
+A sink-only error propagates after the local event has been retained. Awaitable
+sink results are rejected; supply a synchronous durable enqueue callback.
+Interrupted streams do not
 produce a completed-response decision.
 
 On Python 3.11+, the optional `pydantic-ai` extra supplies the native capability integration,
 tested with Pydantic AI 2.61.0 and its provider-free `TestModel`. Use
 `Agent(model, capabilities=[adapter.as_hooks()])`. Native SDK skip exceptions
-prevent escalated tools from executing. The configured score can use prior
-response text; it is not independent authorization or calibrated correctness
-evidence. Run `pytest tests/test_pydantic_sdk_execution.py` with that extra installed.
+prevent escalated tools from executing. Since 0.6.0, configure
+`PydanticAIEscalationAdapter(evidence_provider=resolve_evidence)`, where
+`resolve_evidence(ctx, call, tool_def, args)` returns a `ConfidenceScore` or an
+awaitable score for that invocation. Missing/invalid evidence blocks even at
+threshold zero. User, tool and assistant message text is not used to infer
+pre-action confidence. Direct `adapter.gate()` calls require `confidence=score`;
+`response_text` and `logprobs` are no longer gate inputs. Bind evidence to the
+current tool call and validated arguments; the application owns provenance,
+freshness and independent authorization. A supplied number is not proof of
+calibration or correctness. Provider errors stop execution and are not reused
+as a previous score. Run `pytest tests/test_pydantic_sdk_execution.py` with that
+extra installed.

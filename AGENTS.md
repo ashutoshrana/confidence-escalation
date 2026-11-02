@@ -19,3 +19,6 @@
 | Release roundtrip accepts substituted files with matching version metadata | Identity checks omit exact distribution bytes | Verify the retained artifact checksum manifest after download and again before OIDC publication |
 
 | README describes an available release as unpublished or labels an older release current | A release-time version snapshot was kept as permanent project status prose | Link to the stable PyPI project and changelog instead of embedding current-release assertions; preserve historical published artifact text |
+
+| A user confidence phrase permits a native tool before any trusted evidence exists | The Pydantic hook parsed arbitrary request/history text as response confidence | Require a per-invocation application evidence provider, reject missing evidence even at threshold zero, and test attacker text plus concurrent native calls |
+| Completed response decisions disappear when a notification handler fails | Dispatch raised before event retention and sink delivery | Retain successful/failed outcomes and the final event before raising the original handler error; chain a simultaneous sink error and reject awaitable sinks |
