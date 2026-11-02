@@ -20,7 +20,7 @@ What this example shows:
   5. Escalation callback (on_escalation) capturing human-review events
 
 Install:
-    pip install confidence-escalation
+    pip install 'confidence-escalation>=0.6.0'
 
 Usage:
     python examples/eu_ai_act_art14_compliance.py
