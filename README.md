@@ -1,6 +1,6 @@
 # confidence-escalation
 
-Source release candidate: **0.5.0** (not yet published). See [release notes](CHANGELOG.md).
+Find published releases on [PyPI](https://pypi.org/project/confidence-escalation/) and changes in the [changelog](CHANGELOG.md).
 
 **Framework-agnostic confidence-gated escalation middleware for LLM agents.**
 
@@ -18,7 +18,7 @@ Provides confidence-based controls relevant to human-agent trust risks; executio
 
 ## What it does and when to use it
 
-This Python library helps agent application developers decide whether to continue, request review, restrict tools, or try another model when available confidence signals are weak. Use it when you can supply model or tool-risk signals and need a consistent escalation policy. The current published version is [0.3.0](https://pypi.org/project/confidence-escalation/0.3.0/).
+This Python library helps agent application developers decide whether to continue, request review, restrict tools, or try another model when available confidence signals are weak. Use it when you can supply model or tool-risk signals and need a consistent escalation policy.
 
 For example, a support agent proposes an account change. Your application first checks the user's permission, then evaluates confidence and invokes the change through the pre-action gate. If evidence is missing or the policy escalates, the action is not invoked. A review handler can record or route the request; your application must recheck permission and policy before resuming it.
 
