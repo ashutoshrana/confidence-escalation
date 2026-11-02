@@ -6,6 +6,12 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.5.0] — Unreleased
+
+- Repair native Pydantic AI capability hooks and blocked-tool handling.
+- Add the Pydantic AI SDK extra and provider-free native adapter coverage.
+- Record completed stream events and propagate escalation-handler failures after dispatched handlers finish.
+
 ## [0.4.0] — Unreleased
 
 - Require explicit validated pre-action confidence evidence for native tool gates; tool risk remains separate policy context.

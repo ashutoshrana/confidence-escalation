@@ -1,5 +1,7 @@
 # confidence-escalation
 
+Source release candidate: **0.5.0** (not yet published). See [release notes](CHANGELOG.md).
+
 **Framework-agnostic confidence-gated escalation middleware for LLM agents.**
 
 [![PyPI version](https://badge.fury.io/py/confidence-escalation.svg)](https://badge.fury.io/py/confidence-escalation)
