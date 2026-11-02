@@ -4,7 +4,6 @@ import asyncio
 import pytest
 from confidence_escalation.async_middleware import AsyncConfidenceEscalationMiddleware
 from confidence_escalation.policy import ThresholdPolicy, EscalationAction
-from confidence_escalation.scorer import MultiSignalConfidenceScorer
 
 
 async def _high_confidence_step(*args, **kwargs) -> str:
@@ -86,3 +85,45 @@ async def test_concurrent_calls_independent():
     )
     assert len(results) == 2
     assert results[0]["confidence"] != results[1]["confidence"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("threshold,triggered", [(0.5, False), (0.9, True)])
+async def test_stream_records_and_delivers_final_decision(threshold, triggered):
+    received = []
+    middleware = AsyncConfidenceEscalationMiddleware(
+        policy=ThresholdPolicy(threshold=threshold), event_sink=received.append,
+    )
+    assert "".join([token async for token in middleware.stream(_streaming_step)]) == "I am 70% confident."
+    assert len(middleware.events) == 1
+    assert received == middleware.events
+    assert received[0].triggered is triggered
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("streaming", [False, True])
+async def test_handler_failure_propagates_after_all_handlers_finish(streaming):
+    completed = []
+
+    class Broken:
+        def supports(self, action):
+            return True
+
+        async def handle(self, result, context):
+            raise RuntimeError("notification failed")
+
+    class Successful(Broken):
+        async def handle(self, result, context):
+            await asyncio.sleep(0)
+            completed.append(True)
+            return {"delivered": True}
+
+    middleware = AsyncConfidenceEscalationMiddleware(
+        policy=ThresholdPolicy(threshold=0.99), handlers=[Broken(), Successful()],
+    )
+    with pytest.raises(RuntimeError, match="notification failed"):
+        if streaming:
+            _ = [token async for token in middleware.stream(_streaming_step)]
+        else:
+            await middleware.call(_low_confidence_step)
+    assert completed == [True]
