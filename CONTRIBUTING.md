@@ -19,6 +19,10 @@ EU AI Act Article 14 (Human Oversight).
 
 ## 1. Development setup
 
+Use Python 3.10 or newer for the `[dev]` extra and pytest suite. The base library
+still supports Python 3.9; its CI lane installs the base wheel without development
+dependencies and checks core behavior plus package compilation.
+
 ```bash
 git clone https://github.com/ashutoshrana/confidence-escalation.git
 cd confidence-escalation
@@ -31,7 +35,7 @@ pip install -e ".[dev]"
 pytest tests/ -v
 ```
 
-The `[dev]` extra installs `pytest`, `pytest-cov`, `ruff`, and `mypy`.
+The `[dev]` extra installs patched `pytest>=9.0.3`, `pytest-asyncio`, and `pytest-cov`.
 No LLM framework dependencies are required for the core test suite —
 all framework-specific code uses lazy imports with duck-typed stubs in tests.
 
