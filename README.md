@@ -54,6 +54,10 @@ A score is a weighted heuristic, not a verified probability that an answer is co
 
 ### Installation
 
+The base runtime supports Python 3.9+. Development and tests (`[dev]`) require
+Python 3.10+ with patched `pytest>=9.0.3`. Python 3.9 CI runs an installed-wheel
+core API smoke and compile check without development dependencies.
+
 ```bash
 pip install confidence-escalation
 # With LangChain:

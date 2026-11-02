@@ -8,6 +8,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.5.0] — Unreleased
 
+- Development/test tooling now requires Python 3.10+ and patched `pytest>=9.0.3`; the dependency-free base runtime still supports Python 3.9. CI checks Python 3.9 through an isolated installed-wheel smoke and compile check without development dependencies.
+
 - Repair native Pydantic AI capability hooks and blocked-tool handling.
 - Add the Pydantic AI SDK extra and provider-free native adapter coverage.
 - Record completed stream events and propagate escalation-handler failures after dispatched handlers finish.
