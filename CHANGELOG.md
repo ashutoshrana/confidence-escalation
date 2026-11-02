@@ -8,6 +8,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.6.0] — Unreleased
 
+- Qualify LangChain Core 1.3.3+, Pydantic AI 2.61+ and OpenAI Agents 0.22.3+ installers with patched OpenTelemetry; remove SDK-omitting Python markers. Quarantine CrewAI, legacy AutoGen and Google ADK install extras and exclude them from `all`; compatibility helpers remain.
+- Use the native LangChain callback base when installed and propagate notification errors through CallbackManager; this callback remains post-response observation, not pre-action enforcement.
 - Require explicit per-invocation ConfidenceScore evidence for the native Pydantic AI pre-tool capability; request/user/tool text no longer supplies confidence. Missing or invalid evidence blocks even at threshold zero.
 - Migration: provide evidence_provider(ctx, call, tool_def, args) on PydanticAIEscalationAdapter; direct gate calls use confidence=ConfidenceScore(...). The application owns evidence provenance, freshness, argument binding and authorization.
 - Retain completed async call/stream decisions with successful and failed handler outcomes before rethrowing the original handler exception. A simultaneous sink exception is chained behind that original error; sink-only failure propagates after the local event is retained. Event sinks must complete synchronously.

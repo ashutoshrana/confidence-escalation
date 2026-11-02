@@ -10,7 +10,7 @@ policy; it does not establish legal compliance or resource authorization.
 
 Install::
 
-    pip install 'confidence-escalation[pydantic-ai]'
+    pip install 'confidence-escalation[pydantic-ai]>=0.6.0'
 
 Usage::
 

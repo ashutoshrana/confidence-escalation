@@ -15,6 +15,11 @@ from confidence_escalation.policy import EscalationPolicy, ThresholdPolicy, Esca
 from confidence_escalation.handlers import EscalationHandler, HumanInLoopHandler
 from confidence_escalation.scorer import MultiSignalConfidenceScorer
 
+try:
+    from langchain_core.callbacks import BaseCallbackHandler
+except ImportError:
+    BaseCallbackHandler = object
+
 __all__ = ["LangChainEscalationAdapter"]
 
 
@@ -78,8 +83,10 @@ class LangChainEscalationAdapter:
         return self._middleware.events
 
 
-class LangChainCallbackShim:
+class LangChainCallbackShim(BaseCallbackHandler):
     """Minimal shim implementing LangChain's BaseCallbackHandler interface."""
+
+    raise_error = True
 
     def __init__(self, adapter: LangChainEscalationAdapter):
         self._adapter = adapter
