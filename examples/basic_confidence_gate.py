@@ -5,7 +5,7 @@ Demonstrates ThresholdPolicy with HumanInLoopHandler for EU AI Act
 Article 14 human oversight compliance.
 
 Install:
-    pip install confidence-escalation
+    pip install 'confidence-escalation>=0.6.0'
 
 Usage:
     python examples/basic_confidence_gate.py

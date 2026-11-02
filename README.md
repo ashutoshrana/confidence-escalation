@@ -10,7 +10,7 @@ Find published releases on [PyPI](https://pypi.org/project/confidence-escalation
 [![Coverage](https://codecov.io/gh/ashutoshrana/confidence-escalation/branch/main/graph/badge.svg)](https://codecov.io/gh/ashutoshrana/confidence-escalation)
 [![CI](https://github.com/ashutoshrana/confidence-escalation/actions/workflows/ci.yml/badge.svg)](https://github.com/ashutoshrana/confidence-escalation/actions/workflows/ci.yml)
 
-Multi-signal confidence scoring (logprob + verbalized + ASR + tool risk) with threshold-based escalation policies and pluggable handlers. Works with **LangChain**, **LangGraph**, **CrewAI**, **AutoGen**, **Google ADK**, and any Python agent framework.
+Multi-signal confidence scoring (logprob + verbalized + ASR + tool risk) with threshold-based escalation policies and pluggable handlers. Includes native function-tool guards for OpenAI Agents and Pydantic AI, a LangChain response callback, and SDK-independent compatibility helpers for other frameworks. See the installer boundaries below.
 
 Provides confidence-based controls relevant to human-agent trust risks; execution is blocked only where your application explicitly wires in a pre-action gate.
 
@@ -44,7 +44,7 @@ A score is a weighted heuristic, not a verified probability that an answer is co
 - **Multi-signal scoring** — combine logprobs, verbalized confidence, and tool-call risk into a single composite score
 - **Threshold policies** — single-threshold, dual-threshold (normal + critical), composite multi-policy chains
 - **Pluggable handlers** — human-in-loop, model upgrade, tool restriction, compliance logging
-- **Framework adapters** — LangChain callbacks, CrewAI step_callback, AutoGen reply function wrapper, Google ADK event interceptor
+- **Framework adapters** — native OpenAI/Pydantic tool guards, a LangChain response callback, and retained caller-wired legacy helpers
 - **EU AI Act Article 12 audit logging** — structured JSON compliance log on every escalation
 - **Zero required dependencies** — core library runs with no dependencies; framework integrations are optional extras
 
@@ -54,17 +54,39 @@ A score is a weighted heuristic, not a verified probability that an answer is co
 
 ### Installation
 
+Installer examples keep the security-qualified package floor. If that release is not yet available on PyPI, use the reviewed checkout or wheel; do not drop the floor to make pip select an older distribution.
+
+Use a maintained Python 3.11+ runtime for production. Python 3.9/3.10 core compatibility remains available as legacy support; development and optional SDK floors are separate.
+
 The base runtime supports Python 3.9+. Development and tests (`[dev]`) require
 Python 3.10+ with patched `pytest>=9.0.3`. Python 3.9 CI runs an installed-wheel
 core API smoke and compile check without development dependencies.
 
 ```bash
-pip install confidence-escalation
+pip install 'confidence-escalation>=0.6.0'
 # With LangChain:
-pip install "confidence-escalation[langchain]"
-# With all frameworks:
-pip install "confidence-escalation[all]"
+pip install "confidence-escalation[langchain]>=0.6.0"
+# With all retained security-qualified installers:
+pip install "confidence-escalation[all]>=0.6.0"
 ```
+
+### Installer and SDK boundaries
+
+The 2026-11-02 qualification resolves/audits minimum and current graphs on Python 3.11 and current graphs on Python 3.14. Native execution is tested in its declared 3.11/3.12 cells; the new 3.14 lane is core-only and does not establish all SDKs' native behavior. Lock and rescan the actual deployment graph; no claim covers every historical/future dependency combination.
+
+| Extra | Qualified dependency floor | Dependency Python floor |
+|---|---|---|
+| `langchain` | langchain-core 1.3.3 `<2` | 3.10 |
+| `openai-agents` | openai-agents 0.22.3 `<0.25`, opentelemetry-api 1.45.1 | 3.10 |
+| `pydantic-ai` | pydantic-ai 2.61.0 `<3`, opentelemetry-api 1.45.1 | 3.11 |
+| `all` | the three retained runtime installers above | 3.11 |
+| `dev` | patched pytest 9.0.3, pytest-asyncio 1.3.0 and listed tools | 3.10 |
+
+Unavailable SDKs now fail dependency resolution on older Python; Python-version markers no longer silently omit the requested SDK. The version-bounded install commands prevent pip from choosing an earlier project release with weaker contracts.
+
+CrewAI, legacy AutoGen and Google ADK install extras are quarantined and removed from `all`; their pure compatibility helpers and public imports remain. Current CrewAI constrains affected Chroma; legacy AutoGen requires unpatched diskcache; current Google ADK caps OpenTelemetry API below its patched 1.45.1 floor. No incompatible resolver override is applied. A clean native migration needs separate qualification before those installers return. An unknown-extra pip warning is not SDK installation support.
+
+The LangChain shim inherits the SDK's native callback base and propagates callback errors. It observes generated responses, after any generation effects; it is not a pre-action gate. Keep independent authorization and explicit `call_guarded`/native tool-input enforcement before side effects.
 
 ### Basic Scoring
 
@@ -324,15 +346,28 @@ storage. This does not cover hosted tools or calls outside the configured SDK to
 [Official tool guardrail guidance](https://openai.github.io/openai-agents-python/guardrails/) distinguishes input guardrails before execution from output checks afterward. [Lifecycle signatures](https://openai.github.io/openai-agents-python/ref/lifecycle/) include agent, tool, response, and output arguments exercised by the regression test. Run `python -m pytest tests/test_openai_sdk_execution.py`; the dedicated CI installs the SDK so this check cannot silently skip there.
 
 Completed `AsyncConfidenceEscalationMiddleware.stream()` token streams now retain
-and deliver their final decision to `events` and `event_sink`, including handler
-results. Tokens are already visible before this evaluation; use `call_guarded`
+and deliver their final decision to `events` and a synchronous `event_sink`, including
+successful results and failed-handler outcomes. Tokens are already visible before this evaluation; use `call_guarded`
 for pre-action checks. Handler failures propagate after all dispatched handlers
-finish; they are not successful escalation delivery. Interrupted streams do not
+finish; they are not successful escalation delivery. If both a handler and the sink
+fail, the original handler exception is raised with the sink exception as its cause.
+A sink-only error propagates after the local event has been retained. Awaitable
+sink results are rejected; supply a synchronous durable enqueue callback.
+Interrupted streams do not
 produce a completed-response decision.
 
 On Python 3.11+, the optional `pydantic-ai` extra supplies the native capability integration,
 tested with Pydantic AI 2.61.0 and its provider-free `TestModel`. Use
 `Agent(model, capabilities=[adapter.as_hooks()])`. Native SDK skip exceptions
-prevent escalated tools from executing. The configured score can use prior
-response text; it is not independent authorization or calibrated correctness
-evidence. Run `pytest tests/test_pydantic_sdk_execution.py` with that extra installed.
+prevent escalated tools from executing. Since 0.6.0, configure
+`PydanticAIEscalationAdapter(evidence_provider=resolve_evidence)`, where
+`resolve_evidence(ctx, call, tool_def, args)` returns a `ConfidenceScore` or an
+awaitable score for that invocation. Missing/invalid evidence blocks even at
+threshold zero. User, tool and assistant message text is not used to infer
+pre-action confidence. Direct `adapter.gate()` calls require `confidence=score`;
+`response_text` and `logprobs` are no longer gate inputs. Bind evidence to the
+current tool call and validated arguments; the application owns provenance,
+freshness and independent authorization. A supplied number is not proof of
+calibration or correctness. Provider errors stop execution and are not reused
+as a previous score. Run `pytest tests/test_pydantic_sdk_execution.py` with that
+extra installed.

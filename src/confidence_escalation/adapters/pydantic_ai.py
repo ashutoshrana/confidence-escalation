@@ -2,7 +2,7 @@
 Pydantic AI adapter for confidence-escalation.
 
 Hooks into the Pydantic AI ``before_tool_execute`` lifecycle event to apply
-confidence-gated escalation before any tool execution.
+confidence-gated escalation before registered function-tool execution.
 
 The native capability raises the SDK-compatible ``SkipToolExecution``
 before an escalated tool executes. This applies the configured confidence
@@ -10,13 +10,13 @@ policy; it does not establish legal compliance or resource authorization.
 
 Install::
 
-    pip install 'confidence-escalation[pydantic-ai]'
+    pip install 'confidence-escalation[pydantic-ai]>=0.6.0'
 
 Usage::
 
     from confidence_escalation.adapters.pydantic_ai import PydanticAIEscalationAdapter
 
-    adapter = PydanticAIEscalationAdapter(threshold=0.65)
+    adapter = PydanticAIEscalationAdapter(threshold=0.65, evidence_provider=resolve_evidence)
 
     # Option 1: get pre-built hooks object
     hooks = adapter.as_hooks()
@@ -34,13 +34,14 @@ Usage::
 
 from __future__ import annotations
 
+import inspect
 import logging
 from typing import Any, Callable, Dict, List, Optional
 
 from confidence_escalation.handlers import EscalationHandler, HumanInLoopHandler, ComplianceLoggingHandler
 from confidence_escalation.middleware import ConfidenceEscalationMiddleware
 from confidence_escalation.policy import EscalationAction, EscalationPolicy, ThresholdPolicy
-from confidence_escalation.scorer import MultiSignalConfidenceScorer
+from confidence_escalation.scorer import ConfidenceScore, MultiSignalConfidenceScorer, validate_probability
 
 __all__ = ["PydanticAIEscalationAdapter", "PydanticAIHooks", "SkipToolExecution"]
 
@@ -120,33 +121,26 @@ class PydanticAIHooks(AbstractCapability):
         )
         tool_call_id: Optional[str] = getattr(call, "tool_call_id", None)
 
-        # Extract prior response text from message history for verbalized scoring
-        response_text: Optional[str] = None
-        messages = getattr(ctx, "messages", []) or []
-        for msg in reversed(messages):
-            parts = getattr(msg, "parts", []) or (msg if isinstance(msg, list) else [])
-            for part in parts:
-                content = getattr(part, "content", None) or (part if isinstance(part, str) else None)
-                if content and isinstance(content, str) and len(content) > 10:
-                    response_text = content
-                    break
-            if response_text:
-                break
-
-        tool_risk = self._adapter._tool_risk_for(tool_name)
+        # Application evidence is resolved for this invocation, never inferred from messages.
+        provider = self._adapter.evidence_provider
+        confidence = provider(ctx, call, tool_def, args) if provider is not None else None
+        if inspect.isawaitable(confidence):
+            confidence = await confidence
         context = {
             "event": "before_tool_execute",
             "tool_name": tool_name,
             "tool_call_id": tool_call_id,
             "tool_args_keys": list(args.keys()),
-            "regulation_citation": "EU AI Act Art. 14 §1(d) + OWASP ASI-09",
         }
-
+        try:
+            if not isinstance(confidence, ConfidenceScore):
+                raise TypeError("confidence must be a ConfidenceScore")
+            confidence.require_evidence()
+        except (PermissionError, ValueError, TypeError) as exc:
+            raise SkipToolExecution(f"Tool '{tool_name}' blocked: missing or invalid confidence evidence") from exc
         result = self._adapter.gate(
-            tool_name=tool_name,
-            tool_risk=tool_risk,
-            response_text=response_text,
-            context=context,
+            tool_name=tool_name, tool_risk=self._adapter._tool_risk_for(tool_name),
+            context=context, confidence=confidence,
         )
 
         if result["triggered"]:
@@ -186,13 +180,17 @@ class PydanticAIEscalationAdapter:
         critical_threshold: Below this, ABORT. Default 0.25.
         policy: Override the default ThresholdPolicy.
         handlers: Override default handlers.
-        high_risk_tools: Tool names that apply tighter threshold (+0.15).
+        high_risk_tools: Tool names exposed as higher tool_risk in policy context.
         skip_message: Message returned to agent when tool is skipped.
+        evidence_provider: Trusted callable(ctx, call, tool_def, args) returning a
+            ConfidenceScore or awaitable score for this invocation. No provider
+            denies native tool execution. Message text is never used as evidence.
 
     Example::
 
         adapter = PydanticAIEscalationAdapter(
             threshold=0.7,
+            evidence_provider=resolve_evidence,  # application-owned per-call evidence
             high_risk_tools=frozenset({"delete_record", "transfer_funds"}),
         )
         hooks = adapter.as_hooks()
@@ -216,11 +214,13 @@ class PydanticAIEscalationAdapter:
         handlers: Optional[List[EscalationHandler]] = None,
         high_risk_tools: Optional[frozenset] = None,
         skip_message: str = "Tool blocked: confidence below threshold. Human review required.",
+        evidence_provider: Optional[Callable[[Any, Any, Any, Dict[str, Any]], Any]] = None,
     ):
         self.threshold = threshold
         self.critical_threshold = critical_threshold
-        self.high_risk_tools = high_risk_tools or self._DEFAULT_HIGH_RISK_TOOLS
+        self.high_risk_tools = self._DEFAULT_HIGH_RISK_TOOLS if high_risk_tools is None else high_risk_tools
         self.skip_message = skip_message
+        self.evidence_provider = evidence_provider
         self._local_events: List[Any] = []
         self._middleware = ConfidenceEscalationMiddleware(
             scorer=MultiSignalConfidenceScorer(),
@@ -245,26 +245,23 @@ class PydanticAIEscalationAdapter:
         self,
         tool_name: str,
         tool_risk: float = 0.2,
-        response_text: Optional[str] = None,
-        logprobs: Optional[List[float]] = None,
         context: Optional[Dict[str, Any]] = None,
+        *,
+        confidence: Optional[ConfidenceScore] = None,
     ) -> Dict[str, Any]:
-        """
-        Core gate logic — scores confidence and evaluates policy.
+        """Evaluate explicit per-call evidence; messages and risk are not confidence.
 
-        Called by ``PydanticAIHooks.before_tool_execute``.
-        Also usable standalone for testing.
+        The application owns evidence provenance, freshness, argument binding and
+        resource authorization. Missing evidence blocks even at threshold zero.
         """
-        # tool_call_risk is a fallback signal only — when verbalized or logprob
-        # signals are present, they take priority and the tool_risk contribution
-        # would otherwise dilute a high-confidence explicit signal below any
-        # practical threshold (max composite with tool_risk=0.2 is 0.4).
-        has_explicit_signal = response_text is not None or logprobs is not None
-        confidence = self._middleware.score(
-            response_text=response_text,
-            logprobs=logprobs,
-            tool_call_risk=None if has_explicit_signal else tool_risk,
-        )
+        validate_probability(tool_risk, "tool_risk")
+        if confidence is None:
+            raise PermissionError("Pre-action confidence evidence is required")
+        if not isinstance(confidence, ConfidenceScore):
+            raise TypeError("confidence must be a ConfidenceScore")
+        confidence.require_evidence()
+        context = dict(context or {})
+        context.update(tool_name=tool_name, tool_risk=tool_risk)
         result = self._middleware.evaluate(confidence, context)
         if result.triggered:
             self._middleware.dispatch(result, context)

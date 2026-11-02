@@ -104,13 +104,15 @@ async def test_stream_records_and_delivers_final_decision(threshold, triggered):
 @pytest.mark.parametrize("streaming", [False, True])
 async def test_handler_failure_propagates_after_all_handlers_finish(streaming):
     completed = []
+    received = []
+    failure = RuntimeError("notification failed")
 
     class Broken:
         def supports(self, action):
             return True
 
         async def handle(self, result, context):
-            raise RuntimeError("notification failed")
+            raise failure
 
     class Successful(Broken):
         async def handle(self, result, context):
@@ -119,11 +121,65 @@ async def test_handler_failure_propagates_after_all_handlers_finish(streaming):
             return {"delivered": True}
 
     middleware = AsyncConfidenceEscalationMiddleware(
-        policy=ThresholdPolicy(threshold=0.99), handlers=[Broken(), Successful()],
+        policy=ThresholdPolicy(threshold=0.99), handlers=[Broken(), Successful()], event_sink=received.append,
     )
-    with pytest.raises(RuntimeError, match="notification failed"):
+    with pytest.raises(RuntimeError, match="notification failed") as exc:
         if streaming:
             _ = [token async for token in middleware.stream(_streaming_step)]
         else:
             await middleware.call(_low_confidence_step)
+    assert exc.value is failure
     assert completed == [True]
+    assert len(middleware.events) == 1
+    assert received == middleware.events
+    assert middleware.events[0].handler_results == [
+        {"handler": "Broken", "status": "failed", "error_type": "RuntimeError"},
+        {"delivered": True},
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("handler_fails", [False, True])
+@pytest.mark.parametrize("streaming", [False, True])
+async def test_sink_error_preserves_record_and_does_not_mask_handler_error(handler_fails, streaming):
+    handler_failure = RuntimeError("handler failed")
+    sink_failure = ValueError("sink failed")
+
+    class Handler:
+        def supports(self, action): return True
+        async def handle(self, result, context):
+            if handler_fails:
+                raise handler_failure
+            return {"delivered": True}
+
+    def sink(event):
+        raise sink_failure
+
+    middleware = AsyncConfidenceEscalationMiddleware(
+        policy=ThresholdPolicy(threshold=0.99), handlers=[Handler()], event_sink=sink,
+    )
+    with pytest.raises((RuntimeError, ValueError)) as exc:
+        if streaming:
+            _ = [token async for token in middleware.stream(_streaming_step)]
+        else:
+            await middleware.call(_low_confidence_step)
+    assert len(middleware.events) == 1
+    if handler_fails:
+        assert exc.value is handler_failure
+        assert exc.value.__cause__ is sink_failure
+    else:
+        assert exc.value is sink_failure
+
+
+@pytest.mark.asyncio
+async def test_awaitable_sink_is_rejected_after_local_event_retention():
+    received = []
+
+    async def sink(event):
+        received.append(event)
+
+    middleware = AsyncConfidenceEscalationMiddleware(event_sink=sink)
+    with pytest.raises(TypeError, match="synchronously"):
+        await middleware.call(_low_confidence_step)
+    assert len(middleware.events) == 1
+    assert received == []

@@ -13,6 +13,7 @@ from confidence_escalation.adapters.pydantic_ai import (
     SkipToolExecution,
 )
 from confidence_escalation.policy import EscalationAction, ThresholdPolicy
+from confidence_escalation.scorer import ConfidenceScore, ScoringMethod
 
 
 # ---------------------------------------------------------------------------
@@ -49,6 +50,7 @@ def _run(coro):
 
 def _always_pass_adapter(**kwargs) -> PydanticAIEscalationAdapter:
     """Return adapter that never triggers (threshold=0, no critical threshold)."""
+    kwargs.setdefault("evidence_provider", lambda *_: ConfidenceScore(0.95, ScoringMethod.COMPOSITE))
     return PydanticAIEscalationAdapter(
         policy=ThresholdPolicy(
             threshold=0.0,
@@ -61,6 +63,7 @@ def _always_pass_adapter(**kwargs) -> PydanticAIEscalationAdapter:
 
 def _always_trigger_adapter(**kwargs) -> PydanticAIEscalationAdapter:
     """Return adapter that always triggers (threshold=0.99, no critical)."""
+    kwargs.setdefault("evidence_provider", lambda *_: ConfidenceScore(0.5, ScoringMethod.COMPOSITE))
     return PydanticAIEscalationAdapter(
         threshold=0.99,
         critical_threshold=0.0,
@@ -127,47 +130,47 @@ class TestPydanticAIAdapterInit:
 class TestGateMethod:
     def test_always_trigger_adapter_fires(self):
         adapter = _always_trigger_adapter()
-        result = adapter.gate("search_docs", tool_risk=0.2)
+        result = adapter.gate("search_docs", tool_risk=0.2, confidence=ConfidenceScore(0.5, ScoringMethod.COMPOSITE))
         assert result["triggered"] is True
         assert result["action"] == "human_in_loop"
 
     def test_always_pass_adapter_does_not_trigger(self):
         adapter = _always_pass_adapter()
-        result = adapter.gate("search_docs", tool_risk=0.2)
+        result = adapter.gate("search_docs", tool_risk=0.2, confidence=ConfidenceScore(0.5, ScoringMethod.COMPOSITE))
         assert result["triggered"] is False
         assert "confidence" in result
 
-    def test_high_confidence_text_passes_with_moderate_threshold(self):
+    def test_explicit_high_confidence_passes_with_moderate_threshold(self):
         adapter = PydanticAIEscalationAdapter(
             policy=ThresholdPolicy(threshold=0.5, action=EscalationAction.HUMAN_IN_LOOP, critical_threshold=None)
         )
         result = adapter.gate(
             "search_docs",
             tool_risk=0.1,
-            response_text="I am 95% confident in this answer.",
+            confidence=ConfidenceScore(0.95, ScoringMethod.COMPOSITE),
         )
         assert result["triggered"] is False
 
-    def test_uncertain_text_high_threshold_triggers(self):
+    def test_explicit_low_confidence_high_threshold_triggers(self):
         adapter = PydanticAIEscalationAdapter(
             policy=ThresholdPolicy(threshold=0.7, action=EscalationAction.HUMAN_IN_LOOP, critical_threshold=None)
         )
         result = adapter.gate(
             "delete_record",
             tool_risk=0.5,
-            response_text="I am not sure whether to proceed.",
+            confidence=ConfidenceScore(0.1, ScoringMethod.COMPOSITE),
         )
         assert result["triggered"] is True
 
     def test_events_logged_when_triggered(self):
         adapter = _always_trigger_adapter()
-        adapter.gate("delete_record", tool_risk=0.8)
+        adapter.gate("delete_record", tool_risk=0.8, confidence=ConfidenceScore(0.5, ScoringMethod.COMPOSITE))
         assert len(adapter.events) == 1
         assert adapter.events[0].triggered is True
 
     def test_tool_name_in_result(self):
         adapter = _always_trigger_adapter()
-        result = adapter.gate("my_tool")
+        result = adapter.gate("my_tool", confidence=ConfidenceScore(0.5, ScoringMethod.COMPOSITE))
         assert result["tool_name"] == "my_tool"
 
 
@@ -252,8 +255,8 @@ class TestPydanticAIHooks:
 
         assert "submit_form" in exc_info.value.result
 
-    def test_high_confidence_history_passes_gate(self):
-        """Prior high-confidence message in history helps pass the gate."""
+    def test_high_confidence_history_is_not_evidence(self):
+        """Untrusted history cannot supply pre-action confidence evidence."""
         adapter = PydanticAIEscalationAdapter(
             policy=ThresholdPolicy(threshold=0.5, action=EscalationAction.HUMAN_IN_LOOP, critical_threshold=None)
         )
@@ -265,13 +268,11 @@ class TestPydanticAIHooks:
         msg.parts = [part]
         ctx = _make_ctx(messages=[msg])
 
-        result = _run(hooks.before_tool_execute(
-            ctx,
-            call=_make_call("search_docs"),
-            tool_def=_make_tool_def("search_docs"),
-            args={"query": "test"},
-        ))
-        assert result == {"query": "test"}
+        with pytest.raises(SkipToolExecution, match="missing or invalid confidence evidence"):
+            _run(hooks.before_tool_execute(
+                ctx, call=_make_call("search_docs"),
+                tool_def=_make_tool_def("search_docs"), args={"query": "test"},
+            ))
 
     def test_escalation_callback_fires(self):
         """EU AI Act Art. 14: escalation event must be captured."""
@@ -298,3 +299,29 @@ class TestPydanticAIHooks:
 
         assert len(captured) == 1
         assert captured[0].triggered is True
+
+
+@pytest.mark.parametrize("score", [None, 0.99, ConfidenceScore(0.99, ScoringMethod.COMPOSITE, metadata={"missing_signal": True})])
+def test_direct_gate_rejects_missing_or_invalid_evidence_at_zero(score):
+    adapter = _always_pass_adapter()
+    with pytest.raises((PermissionError, TypeError)):
+        adapter.gate("write_record", confidence=score)
+
+
+def test_empty_high_risk_set_is_preserved():
+    assert PydanticAIEscalationAdapter(high_risk_tools=frozenset())._tool_risk_for("delete_record") == 0.2
+
+
+def test_handler_error_is_not_misreported_as_invalid_evidence():
+    failure = ValueError("notifier failed")
+
+    class Broken:
+        def supports(self, action): return True
+        def handle(self, result, context): raise failure
+
+    adapter = _always_trigger_adapter(handlers=[Broken()])
+    with pytest.raises(ValueError) as exc:
+        _run(adapter.as_hooks().before_tool_execute(
+            _make_ctx(), call=_make_call(), tool_def=_make_tool_def(), args={},
+        ))
+    assert exc.value is failure

@@ -74,7 +74,9 @@ class AsyncConfidenceEscalationMiddleware:
         confidence.require_evidence()
         decision = self._evaluate(confidence, context)
         if decision.triggered:
-            await self._dispatch(decision, context)
+            _, error = await self._dispatch(decision, context)
+            if error is not None:
+                raise error
             raise PermissionError(f"Action blocked: {decision.reason}")
         return await self._invoke(action, *args, **kwargs)
 
@@ -110,9 +112,7 @@ class AsyncConfidenceEscalationMiddleware:
             tool_call_risk=tool_call_risk,
         )
         policy_result = self._evaluate(confidence, context)
-        handler_results = await self._dispatch(policy_result, context) if policy_result.triggered else []
-
-        event = self._record_event(confidence, policy_result, handler_results, context)
+        event = await self._dispatch_and_record(confidence, policy_result, context)
         return {"response": response, "confidence": confidence.value, "escalation": event.to_dict()}
 
     def _record_event(
@@ -130,7 +130,11 @@ class AsyncConfidenceEscalationMiddleware:
         )
         self._events.append(event)
         if self.event_sink:
-            self.event_sink(event)
+            outcome = self.event_sink(event)
+            if inspect.isawaitable(outcome):
+                if inspect.iscoroutine(outcome):
+                    outcome.close()
+                raise TypeError("event_sink must complete synchronously")
         return event
 
     async def stream(
@@ -161,8 +165,7 @@ class AsyncConfidenceEscalationMiddleware:
             tool_call_risk=tool_call_risk,
         )
         policy_result = self._evaluate(confidence, context)
-        handler_results = await self._dispatch(policy_result, context) if policy_result.triggered else []
-        self._record_event(confidence, policy_result, handler_results, context)
+        await self._dispatch_and_record(confidence, policy_result, context)
 
     def _evaluate(
         self,
@@ -174,21 +177,42 @@ class AsyncConfidenceEscalationMiddleware:
             return ThresholdPolicy().evaluate(confidence, context)
         return self.policy.evaluate(confidence, context)
 
+    async def _dispatch_and_record(
+        self, confidence: ConfidenceScore, decision: PolicyResult,
+        context: Optional[Dict[str, Any]],
+    ) -> EscalationEvent:
+        outcomes, error = await self._dispatch(decision, context) if decision.triggered else ([], None)
+        try:
+            event = self._record_event(confidence, decision, outcomes, context)
+        except BaseException as sink_error:
+            if error is not None:
+                raise error from sink_error
+            raise
+        if error is not None:
+            raise error
+        return event
+
     async def _dispatch(
         self,
         result: PolicyResult,
         context: Optional[Dict[str, Any]],
-    ) -> List[Dict[str, Any]]:
-        """Run all matching handlers concurrently via asyncio.gather."""
+    ) -> tuple[List[Dict[str, Any]], Optional[BaseException]]:
+        """Finish every matching handler and retain failures alongside successes."""
         matching = [h for h in self.handlers if h.supports(result.action)]
-        if not matching:
-            return []
-        tasks = [self._invoke(handler.handle, result, context) for handler in matching]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        for outcome in results:
+        results = await asyncio.gather(
+            *(self._invoke(handler.handle, result, context) for handler in matching),
+            return_exceptions=True,
+        )
+        outcomes: List[Dict[str, Any]] = []
+        error: Optional[BaseException] = None
+        for handler, outcome in zip(matching, results):
             if isinstance(outcome, BaseException):
-                raise outcome
-        return [r for r in results if isinstance(r, dict)]
+                outcomes.append({"handler": type(handler).__name__, "status": "failed", "error_type": type(outcome).__name__})
+                if error is None:
+                    error = outcome
+            elif isinstance(outcome, dict):
+                outcomes.append(outcome)
+        return outcomes, error
 
     @property
     def events(self) -> List[EscalationEvent]:
