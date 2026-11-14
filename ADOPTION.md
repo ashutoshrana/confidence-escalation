@@ -2,19 +2,18 @@
 
 ## PyPI Downloads
 
-Verified via [pypistats.org](https://pypistats.org/packages/confidence-escalation).
+Historical download figures recorded from [pypistats.org](https://pypistats.org/packages/confidence-escalation).
 
 | Week of | Downloads |
 |---------|-----------|
 | 2026-04-20 | ~0 (new package) |
 
-Downloads are organic — no self-installs, no promotional campaigns.
-Weekly downloads tracked from PyPI release date.
+Download events do not establish unique users, independent adoption, or production installations. [PyPI Stats](https://pypistats.org/faqs) includes automated CI/CD downloads. As of 2026-11-14, pypistats reports 247 downloads in the last month (mirrors excluded).
 
 ## How It Is Used
 
 `confidence-escalation` implements confidence-gated escalation patterns for
-LLM agents. Developers use it to:
+LLM agents. It is designed to:
 
 1. **Route uncertain LLM responses to human review** before they reach
    consequential decision points (EU AI Act Article 14 compliance)
